@@ -1,11 +1,11 @@
 <?php
 /**
- * Plugin Name: Multi Hurtownie Integration
- * Plugin URI: https://example.com/multi-wholesale-integration
- * Description: Wtyczka integrująca wieloma hurtowniami za pomocą różnych protokołów (FTP, SFTP, API)
+ * Plugin Name: Multi Wholesale Integration
+ * Plugin URI: https://github.com/kemuriCode/Multi-Wholesale-Integration
+ * Description: Wtyczka integrująca wieloma hurtowniami reklamowymi za pomocą różnych protokołów (FTP, SFTP, API)
  * Version: 1.0.0
- * Author: Plugin Developer
- * Author URI: https://example.com
+ * Author: kemuriCode
+ * Author URI: https://github.com/kemuriCode
  * Text Domain: multi-wholesale-integration
  * Domain Path: /languages
  * License: GPL-2.0+
