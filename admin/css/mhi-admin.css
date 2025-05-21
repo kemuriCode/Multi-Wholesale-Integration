@@ -1,0 +1,92 @@
+/* Style dla przycisku czyszczenia mediów */
+.mhi-cleanup-banner {
+    margin: 10px 0 20px 0;
+    padding: 15px;
+    background-color: #fff;
+    border-left: 4px solid #d63638;
+    box-shadow: 0 1px 1px rgba(0, 0, 0, 0.04);
+    position: relative;
+}
+
+.mhi-cleanup-banner h2 {
+    margin-top: 0;
+    color: #23282d;
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.mhi-cleanup-banner p {
+    margin: 0.5em 0;
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.mhi-cleanup-button {
+    display: inline-block;
+    padding: 8px 12px;
+    background-color: #d63638;
+    color: white !important;
+    text-decoration: none;
+    border-radius: 3px;
+    border: none;
+    font-weight: bold;
+    font-size: 14px;
+    cursor: pointer;
+    margin-top: 5px;
+}
+
+.mhi-cleanup-button:hover {
+    background-color: #b32d2e;
+}
+
+.mhi-cleanup-button .dashicons {
+    margin-right: 5px;
+    vertical-align: text-bottom;
+}
+
+/* Style dla kart i sekcji */
+.mhi-admin .nav-tab {
+    padding: 8px 15px;
+    margin-right: 5px;
+}
+
+.mhi-admin .nav-tab .dashicons {
+    margin-right: 5px;
+    vertical-align: text-bottom;
+}
+
+.mhi-admin .postbox {
+    margin-bottom: 20px;
+}
+
+.mhi-admin .postbox .inside {
+    padding: 15px 20px;
+}
+
+.mhi-admin .postbox h2 {
+    padding: 12px 15px;
+}
+
+.mhi-admin-content {
+    margin-top: 20px;
+}
+
+.mhi-action-section {
+    padding: 5px 0;
+    margin-bottom: 15px;
+}
+
+.mhi-file-info {
+    background-color: #f0f0f1;
+    padding: 10px 15px;
+    margin: 10px 0;
+    border-radius: 4px;
+}
+
+.mhi-button-group {
+    margin: 15px 0;
+}
+
+.mhi-button-group .button {
+    margin-right: 10px;
+}
