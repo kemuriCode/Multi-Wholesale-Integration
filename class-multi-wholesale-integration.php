@@ -40,12 +40,12 @@ class Multi_Hurtownie_Integration
 		$hurtownia_id = isset($_POST['hurtownia_id']) ? sanitize_text_field($_POST['hurtownia_id']) : '';
 
 		if (empty($hurtownia_id)) {
-			wp_send_json_error(array('message' => __('Brak identyfikatora hurtowni', 'multi-hurtownie-integration')));
+			wp_send_json_error(array('message' => __('Brak identyfikatora hurtowni', 'multi-wholesale-integration')));
 			return;
 		}
 
 		// Pobierz status pobierania dla danej hurtowni
-		$status = get_option('mhi_download_status_' . $hurtownia_id, __('Brak statusu', 'multi-hurtownie-integration'));
+		$status = get_option('mhi_download_status_' . $hurtownia_id, __('Brak statusu', 'multi-wholesale-integration'));
 
 		// Pobierz informacje o pozostałych partiach
 		$remaining_batches = get_option('mhi_remaining_batches_' . $hurtownia_id, 0);
@@ -72,13 +72,13 @@ class Multi_Hurtownie_Integration
 		$hurtownia_id = isset($_POST['hurtownia_id']) ? sanitize_text_field($_POST['hurtownia_id']) : '';
 
 		if (empty($hurtownia_id)) {
-			wp_send_json_error(array('message' => __('Brak identyfikatora hurtowni', 'multi-hurtownie-integration')));
+			wp_send_json_error(array('message' => __('Brak identyfikatora hurtowni', 'multi-wholesale-integration')));
 			return;
 		}
 
 		// Ustaw flagę anulowania
 		update_option('mhi_cancel_download_' . $hurtownia_id, true);
-		update_option('mhi_download_status_' . $hurtownia_id, __('Anulowanie pobierania...', 'multi-hurtownie-integration'));
+		update_option('mhi_download_status_' . $hurtownia_id, __('Anulowanie pobierania...', 'multi-wholesale-integration'));
 
 		// Pobierz instancję hurtowni
 		$integration = $this->get_integration($hurtownia_id);
@@ -87,7 +87,7 @@ class Multi_Hurtownie_Integration
 		}
 
 		wp_send_json_success(array(
-			'message' => __('Zlecono anulowanie pobierania', 'multi-hurtownie-integration'),
+			'message' => __('Zlecono anulowanie pobierania', 'multi-wholesale-integration'),
 			'hurtownia_id' => $hurtownia_id,
 		));
 	}
@@ -106,20 +106,20 @@ class Multi_Hurtownie_Integration
 		$img_dir = isset($_POST['img_dir']) ? sanitize_text_field($_POST['img_dir']) : '/images';
 
 		if (empty($hurtownia_id)) {
-			wp_send_json_error(array('message' => __('Brak identyfikatora hurtowni', 'multi-hurtownie-integration')));
+			wp_send_json_error(array('message' => __('Brak identyfikatora hurtowni', 'multi-wholesale-integration')));
 			return;
 		}
 
 		// Pobierz instancję hurtowni
 		$integration = $this->get_integration($hurtownia_id);
 		if (!$integration) {
-			wp_send_json_error(array('message' => __('Nie znaleziono hurtowni o podanym identyfikatorze', 'multi-hurtownie-integration')));
+			wp_send_json_error(array('message' => __('Nie znaleziono hurtowni o podanym identyfikatorze', 'multi-wholesale-integration')));
 			return;
 		}
 
 		// Sprawdź, czy hurtownia obsługuje pobieranie zdjęć w partiach
 		if (!method_exists($integration, 'fetch_images')) {
-			wp_send_json_error(array('message' => __('Ta hurtownia nie obsługuje pobierania zdjęć w partiach', 'multi-hurtownie-integration')));
+			wp_send_json_error(array('message' => __('Ta hurtownia nie obsługuje pobierania zdjęć w partiach', 'multi-wholesale-integration')));
 			return;
 		}
 
@@ -135,7 +135,7 @@ class Multi_Hurtownie_Integration
 			'hurtownia_id' => $hurtownia_id,
 			'batch_number' => $batch_number,
 			'remaining_batches' => $remaining_batches,
-			'status' => get_option('mhi_download_status_' . $hurtownia_id, __('Brak statusu', 'multi-hurtownie-integration')),
+			'status' => get_option('mhi_download_status_' . $hurtownia_id, __('Brak statusu', 'multi-wholesale-integration')),
 		);
 
 		wp_send_json_success($response);

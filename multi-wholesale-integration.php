@@ -1,12 +1,12 @@
 <?php
 /**
  * Plugin Name: Multi Hurtownie Integration
- * Plugin URI: https://example.com/multi-hurtownie-integration
+ * Plugin URI: https://example.com/multi-wholesale-integration
  * Description: Wtyczka integrująca wieloma hurtowniami za pomocą różnych protokołów (FTP, SFTP, API)
  * Version: 1.0.0
  * Author: Plugin Developer
  * Author URI: https://example.com
- * Text Domain: multi-hurtownie-integration
+ * Text Domain: multi-wholesale-integration
  * Domain Path: /languages
  * License: GPL-2.0+
  * License URI: http://www.gnu.org/licenses/gpl-2.0.txt
@@ -45,7 +45,7 @@ define('MHI_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('MHI_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('MHI_PLUGIN_BASENAME', plugin_basename(__FILE__));
 define('MHI_VERSION', '1.0.0');
-define('MHI_UPLOADS_DIR', wp_upload_dir()['basedir'] . '/hurtownie');
+define('MHI_UPLOADS_DIR', wp_upload_dir()['basedir'] . '/wholesale');
 
 // Załaduj klasę pomocniczą do debugowania AJAX
 require_once MHI_PLUGIN_DIR . 'includes/class-mhi-debug-helper.php';
@@ -289,18 +289,18 @@ add_action('plugins_loaded', 'mhi_init');
 register_activation_hook(__FILE__, 'mhi_activate');
 function mhi_activate()
 {
-    // Utworzenie katalogu uploads/hurtownie jeśli nie istnieje
+    // Utworzenie katalogu uploads/wholesale jeśli nie istnieje
     $upload_dir = wp_upload_dir();
-    $hurtownie_dir = $upload_dir['basedir'] . '/hurtownie';
+    $wholesale_dir = $upload_dir['basedir'] . '/wholesale';
 
-    if (!file_exists($hurtownie_dir)) {
-        wp_mkdir_p($hurtownie_dir);
+    if (!file_exists($wholesale_dir)) {
+        wp_mkdir_p($wholesale_dir);
     }
 
     // Utworzenie katalogów dla poszczególnych hurtowni
-    $hurtownie = ['hurtownia_1', 'hurtownia_2', 'hurtownia_3', 'hurtownia_4', 'hurtownia_5'];
-    foreach ($hurtownie as $hurtownia) {
-        $dir = $hurtownie_dir . '/' . $hurtownia;
+    $wholesale = ['hurtownia_1', 'hurtownia_2', 'hurtownia_3', 'hurtownia_4', 'hurtownia_5'];
+    foreach ($wholesale as $hurtownia) {
+        $dir = $wholesale_dir . '/' . $hurtownia;
         if (!file_exists($dir)) {
             wp_mkdir_p($dir);
         }
@@ -318,8 +318,8 @@ function mhi_deactivate()
     wp_clear_scheduled_hook('mhi_media_cleanup_event');
 
     // Usunięcie zadań cron dla poszczególnych hurtowni
-    $hurtownie = ['hurtownia_1', 'hurtownia_2', 'hurtownia_3', 'hurtownia_4', 'hurtownia_5'];
-    foreach ($hurtownie as $hurtownia) {
+    $wholesale = ['hurtownia_1', 'hurtownia_2', 'hurtownia_3', 'hurtownia_4', 'hurtownia_5'];
+    foreach ($wholesale as $hurtownia) {
         wp_clear_scheduled_hook('mhi_cron_fetch_' . $hurtownia);
     }
 }
@@ -474,14 +474,14 @@ function mhi_handle_form_submissions()
                     add_settings_error(
                         'mhi_axpol_generate_xml',
                         'mhi_xml_generated',
-                        __('Wygenerowano plik XML dla Axpol pomyślnie.', 'multi-hurtownie-integration'),
+                        __('Wygenerowano plik XML dla Axpol pomyślnie.', 'multi-wholesale-integration'),
                         'success'
                     );
                 } else {
                     add_settings_error(
                         'mhi_axpol_generate_xml',
                         'mhi_xml_generation_failed',
-                        __('Nie udało się wygenerować pliku XML dla Axpol.', 'multi-hurtownie-integration'),
+                        __('Nie udało się wygenerować pliku XML dla Axpol.', 'multi-wholesale-integration'),
                         'error'
                     );
                 }
@@ -489,7 +489,7 @@ function mhi_handle_form_submissions()
                 add_settings_error(
                     'mhi_axpol_generate_xml',
                     'mhi_class_not_found',
-                    __('Nie znaleziono klasy integracji Axpol.', 'multi-hurtownie-integration'),
+                    __('Nie znaleziono klasy integracji Axpol.', 'multi-wholesale-integration'),
                     'error'
                 );
             }
@@ -511,14 +511,14 @@ function mhi_handle_form_submissions()
                     add_settings_error(
                         'mhi_malfini_generate_xml',
                         'mhi_xml_generated',
-                        __('Wygenerowano plik XML dla Malfini pomyślnie.', 'multi-hurtownie-integration'),
+                        __('Wygenerowano plik XML dla Malfini pomyślnie.', 'multi-wholesale-integration'),
                         'success'
                     );
                 } else {
                     add_settings_error(
                         'mhi_malfini_generate_xml',
                         'mhi_xml_generation_failed',
-                        __('Nie udało się wygenerować pliku XML dla Malfini.', 'multi-hurtownie-integration'),
+                        __('Nie udało się wygenerować pliku XML dla Malfini.', 'multi-wholesale-integration'),
                         'error'
                     );
                 }
@@ -526,7 +526,7 @@ function mhi_handle_form_submissions()
                 add_settings_error(
                     'mhi_malfini_generate_xml',
                     'mhi_class_not_found',
-                    __('Nie znaleziono klasy integracji Malfini.', 'multi-hurtownie-integration'),
+                    __('Nie znaleziono klasy integracji Malfini.', 'multi-wholesale-integration'),
                     'error'
                 );
             }
@@ -545,14 +545,14 @@ function mhi_handle_form_submissions()
                 $result = $macma->generate_wc_xml();
 
                 if ($result !== false) {
-                    $status = __('Plik XML został wygenerowany: ', 'multi-hurtownie-integration') . $result;
+                    $status = __('Plik XML został wygenerowany: ', 'multi-wholesale-integration') . $result;
                     add_settings_error('mhi_settings', 'mhi_macma_generate_xml', $status, 'success');
                 } else {
-                    $status = __('Wystąpił błąd podczas generowania pliku XML. Sprawdź logi.', 'multi-hurtownie-integration');
+                    $status = __('Wystąpił błąd podczas generowania pliku XML. Sprawdź logi.', 'multi-wholesale-integration');
                     add_settings_error('mhi_settings', 'mhi_macma_generate_xml', $status, 'error');
                 }
             } else {
-                $status = __('Nie znaleziono pliku integracji dla hurtowni Macma.', 'multi-hurtownie-integration');
+                $status = __('Nie znaleziono pliku integracji dla hurtowni Macma.', 'multi-wholesale-integration');
                 add_settings_error('mhi_settings', 'mhi_macma_generate_xml', $status, 'error');
             }
         }
@@ -570,14 +570,14 @@ function mhi_handle_form_submissions()
                 $result = $par_generator->generate_woocommerce_xml();
 
                 if ($result !== false) {
-                    $status = __('Plik XML dla Par został wygenerowany pomyślnie.', 'multi-hurtownie-integration');
+                    $status = __('Plik XML dla Par został wygenerowany pomyślnie.', 'multi-wholesale-integration');
                     add_settings_error('mhi_settings', 'mhi_par_generate_xml', $status, 'success');
                 } else {
-                    $status = __('Wystąpił błąd podczas generowania pliku XML dla Par. Sprawdź logi.', 'multi-hurtownie-integration');
+                    $status = __('Wystąpił błąd podczas generowania pliku XML dla Par. Sprawdź logi.', 'multi-wholesale-integration');
                     add_settings_error('mhi_settings', 'mhi_par_generate_xml', $status, 'error');
                 }
             } else {
-                $status = __('Nie znaleziono pliku generatora XML dla hurtowni Par.', 'multi-hurtownie-integration');
+                $status = __('Nie znaleziono pliku generatora XML dla hurtowni Par.', 'multi-wholesale-integration');
                 add_settings_error('mhi_settings', 'mhi_par_generate_xml', $status, 'error');
             }
         }
@@ -595,7 +595,7 @@ function mhi_handle_form_submissions()
                 $result = $axpol->import_products_to_woocommerce();
 
                 if ($result === true) {
-                    $status = __('Import produktów rozpoczęty. Proces może potrwać kilka minut.', 'multi-hurtownie-integration');
+                    $status = __('Import produktów rozpoczęty. Proces może potrwać kilka minut.', 'multi-wholesale-integration');
                     add_settings_error(
                         'mhi_axpol_import_products',
                         'mhi_import_started',
@@ -607,16 +607,16 @@ function mhi_handle_form_submissions()
                     add_settings_error(
                         'mhi_axpol_import_products',
                         'mhi_import_failed',
-                        is_string($result) ? $result : __('Wystąpił błąd podczas importu produktów.', 'multi-hurtownie-integration'),
+                        is_string($result) ? $result : __('Wystąpił błąd podczas importu produktów.', 'multi-wholesale-integration'),
                         'error'
                     );
-                    update_option('mhi_axpol_import_status', __('Błąd importu: ', 'multi-hurtownie-integration') . (is_string($result) ? $result : ''));
+                    update_option('mhi_axpol_import_status', __('Błąd importu: ', 'multi-wholesale-integration') . (is_string($result) ? $result : ''));
                 }
             } else {
                 add_settings_error(
                     'mhi_axpol_import_products',
                     'mhi_integration_not_found',
-                    __('Nie znaleziono klasy integracji Axpol.', 'multi-hurtownie-integration'),
+                    __('Nie znaleziono klasy integracji Axpol.', 'multi-wholesale-integration'),
                     'error'
                 );
             }
@@ -636,7 +636,7 @@ function mhi_handle_form_submissions()
                     $result = $macma->import_products_to_woocommerce();
 
                     if ($result === true) {
-                        $status = __('Import produktów rozpoczęty. Proces może potrwać kilka minut.', 'multi-hurtownie-integration');
+                        $status = __('Import produktów rozpoczęty. Proces może potrwać kilka minut.', 'multi-wholesale-integration');
                         add_settings_error(
                             'mhi_macma_import_products',
                             'mhi_import_started',
@@ -648,10 +648,10 @@ function mhi_handle_form_submissions()
                         add_settings_error(
                             'mhi_macma_import_products',
                             'mhi_import_failed',
-                            is_string($result) ? $result : __('Wystąpił błąd podczas importu produktów.', 'multi-hurtownie-integration'),
+                            is_string($result) ? $result : __('Wystąpił błąd podczas importu produktów.', 'multi-wholesale-integration'),
                             'error'
                         );
-                        update_option('mhi_macma_import_status', __('Błąd importu: ', 'multi-hurtownie-integration') . (is_string($result) ? $result : ''));
+                        update_option('mhi_macma_import_status', __('Błąd importu: ', 'multi-wholesale-integration') . (is_string($result) ? $result : ''));
                     }
                 } catch (Exception $e) {
                     add_settings_error(
@@ -660,13 +660,13 @@ function mhi_handle_form_submissions()
                         $e->getMessage(),
                         'error'
                     );
-                    update_option('mhi_macma_import_status', __('Błąd importu: ', 'multi-hurtownie-integration') . $e->getMessage());
+                    update_option('mhi_macma_import_status', __('Błąd importu: ', 'multi-wholesale-integration') . $e->getMessage());
                 }
             } else {
                 add_settings_error(
                     'mhi_macma_import_products',
                     'mhi_integration_not_found',
-                    __('Nie znaleziono klasy integracji Macma.', 'multi-hurtownie-integration'),
+                    __('Nie znaleziono klasy integracji Macma.', 'multi-wholesale-integration'),
                     'error'
                 );
             }
@@ -682,13 +682,13 @@ function mhi_handle_form_submissions()
 
                 // Sprawdź czy generatory XML zostały już wygenerowane
                 $upload_dir = wp_upload_dir();
-                $xml_file = trailingslashit($upload_dir['basedir']) . 'hurtownie/par/woocommerce_import_par.xml';
+                $xml_file = trailingslashit($upload_dir['basedir']) . 'wholesale/par/woocommerce_import_par.xml';
 
                 if (!file_exists($xml_file)) {
                     add_settings_error(
                         'mhi_par_import_products',
                         'mhi_no_xml_file',
-                        __('Brak pliku XML do importu. Najpierw wygeneruj plik XML.', 'multi-hurtownie-integration'),
+                        __('Brak pliku XML do importu. Najpierw wygeneruj plik XML.', 'multi-wholesale-integration'),
                         'error'
                     );
                     return;
@@ -706,29 +706,29 @@ function mhi_handle_form_submissions()
                         ));
 
                         if ($import_id) {
-                            update_option('mhi_par_import_status', __('Import został zainicjowany. Sprawdź status w WP All Import.', 'multi-hurtownie-integration'));
+                            update_option('mhi_par_import_status', __('Import został zainicjowany. Sprawdź status w WP All Import.', 'multi-wholesale-integration'));
                             add_settings_error(
                                 'mhi_par_import_products',
                                 'mhi_import_started',
-                                __('Import produktów został zainicjowany. Sprawdź status w WP All Import.', 'multi-hurtownie-integration'),
+                                __('Import produktów został zainicjowany. Sprawdź status w WP All Import.', 'multi-wholesale-integration'),
                                 'success'
                             );
                         } else {
-                            update_option('mhi_par_import_status', __('Nie udało się utworzyć zadania importu w WP All Import.', 'multi-hurtownie-integration'));
+                            update_option('mhi_par_import_status', __('Nie udało się utworzyć zadania importu w WP All Import.', 'multi-wholesale-integration'));
                             add_settings_error(
                                 'mhi_par_import_products',
                                 'mhi_import_failed',
-                                __('Nie udało się utworzyć zadania importu w WP All Import.', 'multi-hurtownie-integration'),
+                                __('Nie udało się utworzyć zadania importu w WP All Import.', 'multi-wholesale-integration'),
                                 'error'
                             );
                         }
                     } else {
                         // Brak WP All Import - wyświetlamy informację
-                        update_option('mhi_par_import_status', __('Plugin WP All Import nie jest zainstalowany. Import nie jest możliwy.', 'multi-hurtownie-integration'));
+                        update_option('mhi_par_import_status', __('Plugin WP All Import nie jest zainstalowany. Import nie jest możliwy.', 'multi-wholesale-integration'));
                         add_settings_error(
                             'mhi_par_import_products',
                             'mhi_import_failed',
-                            __('Plugin WP All Import nie jest zainstalowany. Import nie jest możliwy.', 'multi-hurtownie-integration'),
+                            __('Plugin WP All Import nie jest zainstalowany. Import nie jest możliwy.', 'multi-wholesale-integration'),
                             'error'
                         );
                     }
@@ -739,13 +739,13 @@ function mhi_handle_form_submissions()
                         $e->getMessage(),
                         'error'
                     );
-                    update_option('mhi_par_import_status', __('Błąd importu: ', 'multi-hurtownie-integration') . $e->getMessage());
+                    update_option('mhi_par_import_status', __('Błąd importu: ', 'multi-wholesale-integration') . $e->getMessage());
                 }
             } else {
                 add_settings_error(
                     'mhi_par_import_products',
                     'mhi_integration_not_found',
-                    __('Nie znaleziono klasy generatora XML dla Par.', 'multi-hurtownie-integration'),
+                    __('Nie znaleziono klasy generatora XML dla Par.', 'multi-wholesale-integration'),
                     'error'
                 );
             }
@@ -762,13 +762,13 @@ function mhi_handle_form_submissions()
 
                 // Sprawdź czy plik XML istnieje
                 $upload_dir = wp_upload_dir();
-                $xml_file = trailingslashit($upload_dir['basedir']) . 'hurtownie/malfini/woocommerce_import_malfini.xml';
+                $xml_file = trailingslashit($upload_dir['basedir']) . 'wholesale/malfini/woocommerce_import_malfini.xml';
 
                 if (!file_exists($xml_file)) {
                     add_settings_error(
                         'mhi_malfini_import_products',
                         'mhi_xml_file_missing',
-                        __('Brak pliku XML do importu. Najpierw wygeneruj plik XML.', 'multi-hurtownie-integration'),
+                        __('Brak pliku XML do importu. Najpierw wygeneruj plik XML.', 'multi-wholesale-integration'),
                         'error'
                     );
                     return;
@@ -778,7 +778,7 @@ function mhi_handle_form_submissions()
                 $result = $malfini->import_products_to_woocommerce();
 
                 if ($result === true) {
-                    $status = __('Import produktów rozpoczęty. Proces może potrwać kilka minut.', 'multi-hurtownie-integration');
+                    $status = __('Import produktów rozpoczęty. Proces może potrwać kilka minut.', 'multi-wholesale-integration');
                     add_settings_error(
                         'mhi_malfini_import_products',
                         'mhi_import_started',
@@ -790,16 +790,16 @@ function mhi_handle_form_submissions()
                     add_settings_error(
                         'mhi_malfini_import_products',
                         'mhi_import_failed',
-                        is_string($result) ? $result : __('Wystąpił błąd podczas importu produktów.', 'multi-hurtownie-integration'),
+                        is_string($result) ? $result : __('Wystąpił błąd podczas importu produktów.', 'multi-wholesale-integration'),
                         'error'
                     );
-                    update_option('mhi_malfini_import_status', __('Błąd importu: ', 'multi-hurtownie-integration') . (is_string($result) ? $result : ''));
+                    update_option('mhi_malfini_import_status', __('Błąd importu: ', 'multi-wholesale-integration') . (is_string($result) ? $result : ''));
                 }
             } else {
                 add_settings_error(
                     'mhi_malfini_import_products',
                     'mhi_integration_not_found',
-                    __('Nie znaleziono klasy integracji Malfini.', 'multi-hurtownie-integration'),
+                    __('Nie znaleziono klasy integracji Malfini.', 'multi-wholesale-integration'),
                     'error'
                 );
             }
@@ -842,7 +842,7 @@ function mhi_cron_generate_xml()
 function mhi_register_importer_assets($hook)
 {
     // Sprawdź czy jesteśmy na stronie wtyczki
-    if (strpos($hook, 'multi-hurtownie-integration') === false) {
+    if (strpos($hook, 'multi-wholesale-integration') === false) {
         return;
     }
 
@@ -887,7 +887,7 @@ function mhi_action_scheduler_missing_notice()
     ?>
     <div class="notice notice-error">
         <p><strong>Multi Hurtownie Integration:</strong>
-            <?php _e('Action Scheduler nie jest dostępny. Import produktów nie będzie działać poprawnie. Upewnij się, że WooCommerce jest aktywowany.', 'multi-hurtownie-integration'); ?>
+            <?php _e('Action Scheduler nie jest dostępny. Import produktów nie będzie działać poprawnie. Upewnij się, że WooCommerce jest aktywowany.', 'multi-wholesale-integration'); ?>
         </p>
     </div>
     <?php
@@ -981,7 +981,7 @@ function mhi_woocommerce_required_notice()
 {
     ?>
     <div class="error">
-        <p><?php _e('Plugin Multi-hurtownie Integration wymaga aktywnego WooCommerce!', 'multi-hurtownie-integration'); ?>
+        <p><?php _e('Plugin Multi-wholesale Integration wymaga aktywnego WooCommerce!', 'multi-wholesale-integration'); ?>
         </p>
     </div>
     <?php
@@ -1014,14 +1014,14 @@ function mhi_handle_fetch_files_forms()
                     add_settings_error(
                         'mhi_malfini_fetch_files',
                         'mhi_files_fetched',
-                        sprintf(__('Pobrano %d plików z serwera Malfini.', 'multi-hurtownie-integration'), count($files)),
+                        sprintf(__('Pobrano %d plików z serwera Malfini.', 'multi-wholesale-integration'), count($files)),
                         'success'
                     );
                 } else {
                     add_settings_error(
                         'mhi_malfini_fetch_files',
                         'mhi_files_fetch_error',
-                        __('Nie udało się pobrać plików z serwera Malfini.', 'multi-hurtownie-integration'),
+                        __('Nie udało się pobrać plików z serwera Malfini.', 'multi-wholesale-integration'),
                         'error'
                     );
                 }
@@ -1029,7 +1029,7 @@ function mhi_handle_fetch_files_forms()
                 add_settings_error(
                     'mhi_malfini_fetch_files',
                     'mhi_files_fetch_error',
-                    sprintf(__('Błąd podczas pobierania plików z serwera Malfini: %s', 'multi-hurtownie-integration'), $e->getMessage()),
+                    sprintf(__('Błąd podczas pobierania plików z serwera Malfini: %s', 'multi-wholesale-integration'), $e->getMessage()),
                     'error'
                 );
             }
@@ -1037,7 +1037,7 @@ function mhi_handle_fetch_files_forms()
             add_settings_error(
                 'mhi_malfini_fetch_files',
                 'mhi_integration_not_found',
-                __('Nie znaleziono klasy integracji dla Malfini.', 'multi-hurtownie-integration'),
+                __('Nie znaleziono klasy integracji dla Malfini.', 'multi-wholesale-integration'),
                 'error'
             );
         }
@@ -1056,14 +1056,14 @@ function mhi_handle_fetch_files_forms()
                     add_settings_error(
                         'mhi_axpol_fetch_files',
                         'mhi_files_fetched',
-                        sprintf(__('Pobrano %d plików z serwera AXPOL.', 'multi-hurtownie-integration'), count($files)),
+                        sprintf(__('Pobrano %d plików z serwera AXPOL.', 'multi-wholesale-integration'), count($files)),
                         'success'
                     );
                 } else {
                     add_settings_error(
                         'mhi_axpol_fetch_files',
                         'mhi_files_fetch_error',
-                        __('Nie udało się pobrać plików z serwera AXPOL.', 'multi-hurtownie-integration'),
+                        __('Nie udało się pobrać plików z serwera AXPOL.', 'multi-wholesale-integration'),
                         'error'
                     );
                 }
@@ -1071,7 +1071,7 @@ function mhi_handle_fetch_files_forms()
                 add_settings_error(
                     'mhi_axpol_fetch_files',
                     'mhi_files_fetch_error',
-                    sprintf(__('Błąd podczas pobierania plików z serwera AXPOL: %s', 'multi-hurtownie-integration'), $e->getMessage()),
+                    sprintf(__('Błąd podczas pobierania plików z serwera AXPOL: %s', 'multi-wholesale-integration'), $e->getMessage()),
                     'error'
                 );
             }
@@ -1079,7 +1079,7 @@ function mhi_handle_fetch_files_forms()
             add_settings_error(
                 'mhi_axpol_fetch_files',
                 'mhi_integration_not_found',
-                __('Nie znaleziono klasy integracji dla AXPOL.', 'multi-hurtownie-integration'),
+                __('Nie znaleziono klasy integracji dla AXPOL.', 'multi-wholesale-integration'),
                 'error'
             );
         }
@@ -1098,14 +1098,14 @@ function mhi_handle_fetch_files_forms()
                     add_settings_error(
                         'mhi_par_fetch_files',
                         'mhi_files_fetched',
-                        __('Pobrano pliki z serwera PAR.', 'multi-hurtownie-integration'),
+                        __('Pobrano pliki z serwera PAR.', 'multi-wholesale-integration'),
                         'success'
                     );
                 } else {
                     add_settings_error(
                         'mhi_par_fetch_files',
                         'mhi_files_fetch_error',
-                        __('Nie udało się pobrać plików z serwera PAR.', 'multi-hurtownie-integration'),
+                        __('Nie udało się pobrać plików z serwera PAR.', 'multi-wholesale-integration'),
                         'error'
                     );
                 }
@@ -1113,7 +1113,7 @@ function mhi_handle_fetch_files_forms()
                 add_settings_error(
                     'mhi_par_fetch_files',
                     'mhi_files_fetch_error',
-                    sprintf(__('Błąd podczas pobierania plików z serwera PAR: %s', 'multi-hurtownie-integration'), $e->getMessage()),
+                    sprintf(__('Błąd podczas pobierania plików z serwera PAR: %s', 'multi-wholesale-integration'), $e->getMessage()),
                     'error'
                 );
             }
@@ -1121,7 +1121,7 @@ function mhi_handle_fetch_files_forms()
             add_settings_error(
                 'mhi_par_fetch_files',
                 'mhi_integration_not_found',
-                __('Nie znaleziono klasy integracji dla PAR.', 'multi-hurtownie-integration'),
+                __('Nie znaleziono klasy integracji dla PAR.', 'multi-wholesale-integration'),
                 'error'
             );
         }
@@ -1140,14 +1140,14 @@ function mhi_handle_fetch_files_forms()
                     add_settings_error(
                         'mhi_inspirion_fetch_files',
                         'mhi_files_fetched',
-                        __('Pobrano pliki z serwera Inspirion.', 'multi-hurtownie-integration'),
+                        __('Pobrano pliki z serwera Inspirion.', 'multi-wholesale-integration'),
                         'success'
                     );
                 } else {
                     add_settings_error(
                         'mhi_inspirion_fetch_files',
                         'mhi_files_fetch_error',
-                        __('Nie udało się pobrać plików z serwera Inspirion.', 'multi-hurtownie-integration'),
+                        __('Nie udało się pobrać plików z serwera Inspirion.', 'multi-wholesale-integration'),
                         'error'
                     );
                 }
@@ -1155,7 +1155,7 @@ function mhi_handle_fetch_files_forms()
                 add_settings_error(
                     'mhi_inspirion_fetch_files',
                     'mhi_files_fetch_error',
-                    sprintf(__('Błąd podczas pobierania plików z serwera Inspirion: %s', 'multi-hurtownie-integration'), $e->getMessage()),
+                    sprintf(__('Błąd podczas pobierania plików z serwera Inspirion: %s', 'multi-wholesale-integration'), $e->getMessage()),
                     'error'
                 );
             }
@@ -1163,7 +1163,7 @@ function mhi_handle_fetch_files_forms()
             add_settings_error(
                 'mhi_inspirion_fetch_files',
                 'mhi_integration_not_found',
-                __('Nie znaleziono klasy integracji dla Inspirion.', 'multi-hurtownie-integration'),
+                __('Nie znaleziono klasy integracji dla Inspirion.', 'multi-wholesale-integration'),
                 'error'
             );
         }
@@ -1182,14 +1182,14 @@ function mhi_handle_fetch_files_forms()
                     add_settings_error(
                         'mhi_macma_fetch_files',
                         'mhi_files_fetched',
-                        sprintf(__('Pobrano %d plików z serwera Macma.', 'multi-hurtownie-integration'), is_array($files) ? count($files) : 0),
+                        sprintf(__('Pobrano %d plików z serwera Macma.', 'multi-wholesale-integration'), is_array($files) ? count($files) : 0),
                         'success'
                     );
                 } else {
                     add_settings_error(
                         'mhi_macma_fetch_files',
                         'mhi_files_fetch_error',
-                        __('Nie udało się pobrać plików z serwera Macma.', 'multi-hurtownie-integration'),
+                        __('Nie udało się pobrać plików z serwera Macma.', 'multi-wholesale-integration'),
                         'error'
                     );
                 }
@@ -1197,7 +1197,7 @@ function mhi_handle_fetch_files_forms()
                 add_settings_error(
                     'mhi_macma_fetch_files',
                     'mhi_files_fetch_error',
-                    sprintf(__('Błąd podczas pobierania plików z serwera Macma: %s', 'multi-hurtownie-integration'), $e->getMessage()),
+                    sprintf(__('Błąd podczas pobierania plików z serwera Macma: %s', 'multi-wholesale-integration'), $e->getMessage()),
                     'error'
                 );
             }
@@ -1205,7 +1205,7 @@ function mhi_handle_fetch_files_forms()
             add_settings_error(
                 'mhi_macma_fetch_files',
                 'mhi_integration_not_found',
-                __('Nie znaleziono klasy integracji dla Macma.', 'multi-hurtownie-integration'),
+                __('Nie znaleziono klasy integracji dla Macma.', 'multi-wholesale-integration'),
                 'error'
             );
         }
