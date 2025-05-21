@@ -297,14 +297,8 @@ function mhi_activate()
         wp_mkdir_p($wholesale_dir);
     }
 
-    // Utworzenie katalogów dla poszczególnych hurtowni
-    $wholesale = ['hurtownia_1', 'hurtownia_2', 'hurtownia_3', 'hurtownia_4', 'hurtownia_5'];
-    foreach ($wholesale as $hurtownia) {
-        $dir = $wholesale_dir . '/' . $hurtownia;
-        if (!file_exists($dir)) {
-            wp_mkdir_p($dir);
-        }
-    }
+    // Usunięto tworzenie katalogów dla poszczególnych hurtowni
+    // Foldery będą tworzone dynamicznie podczas pobierania danych z hurtowni
 }
 
 // Dezaktywacja wtyczki
