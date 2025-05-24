@@ -143,121 +143,189 @@ class MHI_Malfini_WC_XML_Generator
      */
     private function add_product_data($dom, $item, $product, $code)
     {
-        // Podstawowe dane produktu
+        // OBLICZAMY CENY I STANY MAGAZYNOWE
+        $total_stock = 0;
+        $min_price = null;
+        $max_price = null;
+        $available_variants = [];
+
+        // Sprawdzamy każdy wariant (kolor + rozmiary)
+        foreach ($product->variants->children() as $variant) {
+            $variant_code = (string) $variant->code;
+            $color_name = (string) $variant->name;
+
+            // Sprawdzamy każdy rozmiar w wariancie
+            foreach ($variant->nomenclatures->children() as $nomenclature) {
+                $sku = (string) $nomenclature->productSizeCode;
+                $size = (string) $nomenclature->sizeName;
+
+                // ✅ CENY: Sprawdź sellPrice, jeśli brak to użyj domyślnej ceny
+                $price = 0;
+                if (!empty($nomenclature->sellPrice)) {
+                    $price = (float) $nomenclature->sellPrice;
+                } else {
+                    // DOMYŚLNA CENA: 50 PLN (można skonfigurować)
+                    $price = 50.00;
+                    MHI_Logger::warning("Brak ceny dla {$sku}, używam domyślnej: {$price} PLN");
+                }
+
+                if ($price > 0) {
+                    if ($min_price === null || $price < $min_price) {
+                        $min_price = $price;
+                    }
+                    if ($max_price === null || $price > $max_price) {
+                        $max_price = $price;
+                    }
+                }
+
+                // ✅ STAN MAGAZYNOWY: używamy expeditionQuantity
+                $stock = 0;
+                if (!empty($nomenclature->expeditionQuantity)) {
+                    $stock = (int) $nomenclature->expeditionQuantity;
+                    $total_stock += $stock;
+                }
+
+                // Dodaj do dostępnych wariantów jeśli ma stock
+                if ($stock > 0) {
+                    $available_variants[] = [
+                        'sku' => $sku,
+                        'color' => $color_name,
+                        'size' => $size,
+                        'price' => $price,
+                        'stock' => $stock
+                    ];
+                }
+            }
+        }
+
+        // PODSTAWOWE DANE PRODUKTU
         $this->add_xml_element($dom, $item, 'sku', $code);
         $this->add_xml_element($dom, $item, 'name', (string) $product->name);
+        $this->add_xml_element($dom, $item, 'type', 'simple');
+        $this->add_xml_element($dom, $item, 'status', 'publish');
 
-        // Łączymy opis z różnych pól
+        // ✅ CENY - zawsze dodaj cenę
+        if ($min_price !== null && $min_price > 0) {
+            $this->add_xml_element($dom, $item, 'regular_price', number_format($min_price, 2, '.', ''));
+
+            // Jeśli są różne ceny w wariantach, dodaj info w opisie
+            if ($max_price !== null && $max_price != $min_price) {
+                $price_range_text = 'Cena od ' . number_format($min_price, 2) . ' do ' . number_format($max_price, 2) . ' PLN';
+                $this->add_xml_element($dom, $item, 'price_range_info', $price_range_text);
+            }
+
+            MHI_Logger::info('Ceny dla produktu ' . $code . ': od ' . $min_price . ' do ' . $max_price . ' PLN');
+        } else {
+            // Fallback - domyślna cena
+            $this->add_xml_element($dom, $item, 'regular_price', '50.00');
+            MHI_Logger::warning('Brak cen dla produktu ' . $code . ', używam domyślnej: 50.00 PLN');
+        }
+
+        // ✅ STAN MAGAZYNOWY
+        if ($total_stock > 0) {
+            $this->add_xml_element($dom, $item, 'stock_quantity', (string) $total_stock);
+            $this->add_xml_element($dom, $item, 'manage_stock', 'yes');
+            $this->add_xml_element($dom, $item, 'stock_status', 'instock');
+        } else {
+            $this->add_xml_element($dom, $item, 'stock_quantity', '0');
+            $this->add_xml_element($dom, $item, 'manage_stock', 'yes');
+            $this->add_xml_element($dom, $item, 'stock_status', 'outofstock');
+        }
+
+        MHI_Logger::info('Stan magazynowy dla produktu ' . $code . ': ' . $total_stock . ' szt.');
+
+        // OPIS PRODUKTU
         $description = '';
         if (!empty($product->subtitle)) {
-            $description .= '<strong>' . (string) $product->subtitle . '</strong><br>';
+            $description .= '<strong>' . htmlspecialchars((string) $product->subtitle) . '</strong><br>';
         }
         if (!empty($product->specification)) {
-            $description .= '<p>' . (string) $product->specification . '</p>';
+            $description .= '<p>' . htmlspecialchars((string) $product->specification) . '</p>';
         }
         if (!empty($product->description)) {
-            $description .= '<p>' . (string) $product->description . '</p>';
+            $description .= '<p>' . htmlspecialchars((string) $product->description) . '</p>';
         }
-
         $this->add_xml_element($dom, $item, 'description', $description);
 
-        // Kategorie
-        $categoryName = (string) $product->categoryName;
-        $genderName = (string) $product->gender;
+        // ✅ KATEGORIE - w formacie dla import.php
+        $categories_text = '';
+        if (!empty($product->categoryName)) {
+            $categories_text = (string) $product->categoryName;
 
-        $categories = $dom->createElement('categories');
-        if (!empty($categoryName)) {
-            $this->add_xml_element($dom, $categories, 'category', $categoryName);
-        }
-        if (!empty($genderName) && $genderName != 'Nezadáno') {
-            // Dodaj kategorię płci tylko jeśli nie jest pusta i nie jest 'Nezadáno'
-            if (!empty($categoryName)) {
-                $this->add_xml_element($dom, $categories, 'category', $categoryName . ' > ' . $genderName);
-            } else {
-                $this->add_xml_element($dom, $categories, 'category', $genderName);
+            // Dodaj gender jako podkategorię
+            if (!empty($product->gender)) {
+                $categories_text .= ' > ' . (string) $product->gender;
             }
         }
-        $item->appendChild($categories);
+        if (!empty($categories_text)) {
+            $this->add_xml_element($dom, $item, 'categories', $categories_text);
+        }
 
-        // Dodaj warianty produktu i atrybuty
-        if (isset($product->variants) && !empty($product->variants)) {
-            $attributes = $dom->createElement('attributes');
-            $first_variant = true;
-            $first_variant_price = 0;
+        // ✅ ATRYBUTY - w formacie XML dla import.php
+        $all_attributes = [];
 
-            // Zbieramy kolory z wariantów
-            $colors = [];
-            foreach ($product->variants->children() as $variant) {
-                if (!empty($variant->name)) {
-                    $colors[] = (string) $variant->name;
-                } elseif (!empty($variant->colorCode)) {
-                    $colors[] = (string) $variant->colorCode;
-                }
-            }
+        // Zbierz wszystkie unikalne atrybuty ze wszystkich wariantów
+        foreach ($product->variants->children() as $variant) {
+            $color_name = (string) $variant->name;
+            $all_attributes['Kolor'][] = $color_name;
 
-            // Dodajemy atrybut koloru jeśli są dostępne kolory
-            if (!empty($colors)) {
-                $attr = $dom->createElement('attribute');
-                $this->add_xml_element($dom, $attr, 'name', 'Kolor');
-                $this->add_xml_element($dom, $attr, 'value', implode(', ', $colors));
-                $this->add_xml_element($dom, $attr, 'visible', '1');
-                $attributes->appendChild($attr);
-            }
+            // Atrybuty z pierwszego wariantu (są takie same dla całego produktu)
+            if (isset($variant->attributes)) {
+                foreach ($variant->attributes->children() as $attr) {
+                    $attr_title = (string) $attr->title;
+                    $attr_text = (string) $attr->text;
 
-            // Pobierz atrybuty z pierwszego wariantu
-            if (isset($product->variants->item0)) {
-                $variant = $product->variants->item0;
-
-                // Pobierz atrybuty z pierwszego wariantu
-                if (isset($variant->attributes)) {
-                    foreach ($variant->attributes->children() as $attribute) {
-                        if (!empty($attribute->title) && !empty($attribute->text)) {
-                            $attr = $dom->createElement('attribute');
-                            $this->add_xml_element($dom, $attr, 'name', (string) $attribute->title);
-                            $this->add_xml_element($dom, $attr, 'value', (string) $attribute->text);
-                            $this->add_xml_element($dom, $attr, 'visible', '1');
-                            $attributes->appendChild($attr);
-                        }
+                    if (!empty($attr_title) && !empty($attr_text)) {
+                        $all_attributes[$attr_title][] = $attr_text;
                     }
                 }
+            }
+        }
 
-                // Dodaj informacje o marce jako atrybut
-                if (!empty($product->trademark)) {
-                    $attr = $dom->createElement('attribute');
-                    $this->add_xml_element($dom, $attr, 'name', 'Marka');
-                    $this->add_xml_element($dom, $attr, 'value', (string) $product->trademark);
-                    $this->add_xml_element($dom, $attr, 'visible', '1');
-                    $attributes->appendChild($attr);
-                }
+        // Usuń duplikaty i stwórz XML dla atrybutów
+        if (!empty($all_attributes)) {
+            $attributes_element = $dom->createElement('attributes');
+
+            foreach ($all_attributes as $attr_name => $attr_values) {
+                $unique_values = array_unique($attr_values);
+                $attr_value_text = implode(', ', $unique_values);
+
+                $attribute_element = $dom->createElement('attribute');
+                $this->add_xml_element($dom, $attribute_element, 'name', $attr_name);
+                $this->add_xml_element($dom, $attribute_element, 'value', $attr_value_text);
+                $attributes_element->appendChild($attribute_element);
             }
 
-            $item->appendChild($attributes);
+            $item->appendChild($attributes_element);
+        }
 
-            // Pobieramy obrazy z pierwszego wariantu
-            if (isset($product->variants->item0->images)) {
-                $images = $dom->createElement('images');
-
-                // Główne zdjęcie
-                foreach ($product->variants->item0->images->children() as $image_data) {
-                    if (!empty($image_data->link)) {
-                        $image = $dom->createElement('image');
-                        $image->setAttribute('src', (string) $image_data->link);
-                        $images->appendChild($image);
-
-                        // Log tylko dla pierwszego obrazu
-                        if ($images->childNodes->length === 1) {
-                            MHI_Logger::info('Zdjęcie dla produktu ' . $code . ': ' . (string) $image_data->link);
-                        }
+        // ✅ OBRAZY - wszystkie obrazy ze wszystkich wariantów
+        $all_images = [];
+        foreach ($product->variants->children() as $variant) {
+            if (isset($variant->images)) {
+                foreach ($variant->images->children() as $image) {
+                    $image_url = (string) $image->link;
+                    if (!empty($image_url) && !in_array($image_url, $all_images)) {
+                        $all_images[] = $image_url;
                     }
                 }
+            }
+        }
 
-                $item->appendChild($images);
+        // Dodaj obrazy w formacie XML dla import.php
+        if (!empty($all_images)) {
+            $images_element = $dom->createElement('images');
+
+            foreach ($all_images as $image_url) {
+                $image_element = $dom->createElement('image');
+                $image_element->setAttribute('src', $image_url);
+                $images_element->appendChild($image_element);
             }
 
-            // Ustawiamy domyślne wartości dla magazynu
-            $this->add_xml_element($dom, $item, 'stock_quantity', '0');
-            $this->add_xml_element($dom, $item, 'stock_status', 'instock');
+            $item->appendChild($images_element);
         }
+
+        MHI_Logger::info('Wygenerowano dane dla produktu ' . $code . ' - ' . count($available_variants) . ' dostępnych wariantów, ' . count($all_images) . ' obrazów, ' . count($all_attributes) . ' atrybutów');
 
         // Dodatkowe metadane
         $meta_data = $dom->createElement('meta_data');

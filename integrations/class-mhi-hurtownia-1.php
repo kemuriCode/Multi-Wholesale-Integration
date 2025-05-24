@@ -45,8 +45,8 @@ class MHI_Hurtownia_1 implements MHI_Integration_Interface
         // Inicjalizacja konfiguracji
         $this->config = array(
             'api_base_url' => get_option('mhi_hurtownia_1_api_url', MHI_DEFAULT_MALFINI_API_URL),
-            'api_login' => mhi_get_secure_config('hurtownia_1_api_login'),
-            'api_password' => mhi_get_secure_config('hurtownia_1_api_password'),
+            'api_login' => get_option('mhi_hurtownia_1_login', ''),
+            'api_password' => get_option('mhi_hurtownia_1_password', ''),
             'auth_endpoint' => 'api-auth/login',
             'product_endpoint' => 'product',
         );
@@ -61,13 +61,34 @@ class MHI_Hurtownia_1 implements MHI_Integration_Interface
     {
         // Sprawdź, czy hurtownia jest włączona
         if (!get_option('mhi_hurtownia_1_enabled', 0)) {
-            MHI_Logger::info('Hurtownia ' . $this->name . ' jest wyłączona.');
+            if (class_exists('MHI_Logger')) {
+                MHI_Logger::info('Hurtownia ' . $this->name . ' jest wyłączona.');
+            } else {
+                error_log('MHI: Hurtownia ' . $this->name . ' jest wyłączona (MHI_Logger nie istnieje)');
+            }
             return false;
+        }
+
+        // Dodatkowe logowanie konfiguracji
+        if (class_exists('MHI_Logger')) {
+            MHI_Logger::info('Malfini - Sprawdzanie konfiguracji:');
+            MHI_Logger::info('API URL: ' . $this->config['api_base_url']);
+            MHI_Logger::info('API Login: ' . ($this->config['api_login'] ? 'Ustawiony (' . strlen($this->config['api_login']) . ' znaków)' : 'BRAK'));
+            MHI_Logger::info('API Password: ' . ($this->config['api_password'] ? 'Ustawione (' . strlen($this->config['api_password']) . ' znaków)' : 'BRAK'));
+        } else {
+            error_log('MHI: Malfini - Sprawdzanie konfiguracji (MHI_Logger nie istnieje)');
+            error_log('MHI: API URL: ' . $this->config['api_base_url']);
+            error_log('MHI: API Login: ' . ($this->config['api_login'] ? 'Ustawiony (' . strlen($this->config['api_login']) . ' znaków)' : 'BRAK'));
+            error_log('MHI: API Password: ' . ($this->config['api_password'] ? 'Ustawione (' . strlen($this->config['api_password']) . ' znaków)' : 'BRAK'));
         }
 
         // Sprawdź, czy dane są poprawne
         if (!$this->validate_credentials()) {
-            MHI_Logger::error('Nieprawidłowe dane uwierzytelniające dla hurtowni ' . $this->name);
+            if (class_exists('MHI_Logger')) {
+                MHI_Logger::error('Nieprawidłowe dane uwierzytelniające dla hurtowni ' . $this->name . ' - brakuje login lub hasło');
+            } else {
+                error_log('MHI ERROR: Nieprawidłowe dane uwierzytelniające dla hurtowni ' . $this->name . ' - brakuje login lub hasło');
+            }
             return false;
         }
 
@@ -84,17 +105,31 @@ class MHI_Hurtownia_1 implements MHI_Integration_Interface
             $data = json_decode($body, true);
 
             if (empty($data) || !isset($data['access_token'])) {
-                MHI_Logger::error('Nieprawidłowa odpowiedź z API hurtowni ' . $this->name . ' podczas logowania. Odpowiedź: ' . print_r($data, true));
+                $error_msg = 'Nieprawidłowa odpowiedź z API hurtowni ' . $this->name . ' podczas logowania. Odpowiedź: ' . print_r($data, true);
+                if (class_exists('MHI_Logger')) {
+                    MHI_Logger::error($error_msg);
+                } else {
+                    error_log('MHI ERROR: ' . $error_msg);
+                }
                 return false;
             }
 
             // Zapisz token autoryzacyjny
             $this->auth_token = $data['access_token'];
 
-            MHI_Logger::info('Połączono z API hurtowni ' . $this->name);
+            if (class_exists('MHI_Logger')) {
+                MHI_Logger::info('Połączono z API hurtowni ' . $this->name);
+            } else {
+                error_log('MHI: Połączono z API hurtowni ' . $this->name);
+            }
             return true;
         } catch (Exception $e) {
-            MHI_Logger::error('Błąd podczas łączenia z API hurtowni ' . $this->name . ': ' . $e->getMessage());
+            $error_msg = 'Błąd podczas łączenia z API hurtowni ' . $this->name . ': ' . $e->getMessage();
+            if (class_exists('MHI_Logger')) {
+                MHI_Logger::error($error_msg);
+            } else {
+                error_log('MHI ERROR: ' . $error_msg);
+            }
             return false;
         }
     }
@@ -107,6 +142,12 @@ class MHI_Hurtownia_1 implements MHI_Integration_Interface
     private function login()
     {
         $login_url = trailingslashit($this->config['api_base_url']) . $this->config['auth_endpoint'];
+
+        if (class_exists('MHI_Logger')) {
+            MHI_Logger::info('Malfini - Próba logowania do: ' . $login_url);
+        } else {
+            error_log('MHI: Malfini - Próba logowania do: ' . $login_url);
+        }
 
         $args = array(
             'method' => 'POST',
@@ -124,7 +165,34 @@ class MHI_Hurtownia_1 implements MHI_Integration_Interface
             )),
         );
 
-        return wp_remote_post($login_url, $args);
+        if (class_exists('MHI_Logger')) {
+            MHI_Logger::info('Malfini - Wysyłanie żądania logowania z username: ' . $this->config['api_login']);
+        } else {
+            error_log('MHI: Malfini - Wysyłanie żądania logowania z username: ' . $this->config['api_login']);
+        }
+
+        $response = wp_remote_post($login_url, $args);
+
+        // Loguj odpowiedź
+        if (is_wp_error($response)) {
+            if (class_exists('MHI_Logger')) {
+                MHI_Logger::error('Malfini - Błąd HTTP: ' . $response->get_error_message());
+            } else {
+                error_log('MHI ERROR: Malfini - Błąd HTTP: ' . $response->get_error_message());
+            }
+        } else {
+            $response_code = wp_remote_retrieve_response_code($response);
+            $response_body = wp_remote_retrieve_body($response);
+            if (class_exists('MHI_Logger')) {
+                MHI_Logger::info('Malfini - Kod odpowiedzi: ' . $response_code);
+                MHI_Logger::info('Malfini - Treść odpowiedzi: ' . substr($response_body, 0, 500) . (strlen($response_body) > 500 ? '...' : ''));
+            } else {
+                error_log('MHI: Malfini - Kod odpowiedzi: ' . $response_code);
+                error_log('MHI: Malfini - Treść odpowiedzi: ' . substr($response_body, 0, 500) . (strlen($response_body) > 500 ? '...' : ''));
+            }
+        }
+
+        return $response;
     }
 
     /**
@@ -209,11 +277,20 @@ class MHI_Hurtownia_1 implements MHI_Integration_Interface
                 $local_file = $local_path . $filename;
 
                 // Pobierz produkty
-                MHI_Logger::info('Rozpoczęto pobieranie danych z endpointu ' . $endpoint . ' hurtowni ' . $this->name);
+                if (class_exists('MHI_Logger')) {
+                    MHI_Logger::info('Rozpoczęto pobieranie danych z endpointu ' . $endpoint . ' hurtowni ' . $this->name);
+                } else {
+                    error_log('MHI: Rozpoczęto pobieranie danych z endpointu ' . $endpoint . ' hurtowni ' . $this->name);
+                }
                 $response = $this->make_api_request($endpoint);
 
                 if (is_wp_error($response)) {
-                    MHI_Logger::error('Błąd podczas pobierania danych z API hurtowni ' . $this->name . ': ' . $response->get_error_message());
+                    $error_msg = 'Błąd podczas pobierania danych z API hurtowni ' . $this->name . ': ' . $response->get_error_message();
+                    if (class_exists('MHI_Logger')) {
+                        MHI_Logger::error($error_msg);
+                    } else {
+                        error_log('MHI ERROR: ' . $error_msg);
+                    }
                     continue;
                 }
 
@@ -221,7 +298,12 @@ class MHI_Hurtownia_1 implements MHI_Integration_Interface
 
                 // Sprawdź czy odpowiedź nie jest pusta
                 if (empty($body)) {
-                    MHI_Logger::error('Pusta odpowiedź z API hurtowni ' . $this->name . ' dla endpointu ' . $endpoint);
+                    $error_msg = 'Pusta odpowiedź z API hurtowni ' . $this->name . ' dla endpointu ' . $endpoint;
+                    if (class_exists('MHI_Logger')) {
+                        MHI_Logger::error($error_msg);
+                    } else {
+                        error_log('MHI ERROR: ' . $error_msg);
+                    }
                     continue;
                 }
 
@@ -241,11 +323,21 @@ class MHI_Hurtownia_1 implements MHI_Integration_Interface
                 $result = file_put_contents($local_file, $body);
 
                 if ($result === false) {
-                    MHI_Logger::error('Nie udało się zapisać pliku: ' . $filename . ' z hurtowni ' . $this->name);
+                    $error_msg = 'Nie udało się zapisać pliku: ' . $filename . ' z hurtowni ' . $this->name;
+                    if (class_exists('MHI_Logger')) {
+                        MHI_Logger::error($error_msg);
+                    } else {
+                        error_log('MHI ERROR: ' . $error_msg);
+                    }
                     continue;
                 }
 
-                MHI_Logger::info('Pobrano dane do pliku: ' . $filename . ' z hurtowni ' . $this->name . ' (' . size_format(strlen($body)) . ')');
+                $success_msg = 'Pobrano dane do pliku: ' . $filename . ' z hurtowni ' . $this->name . ' (' . size_format(strlen($body)) . ')';
+                if (class_exists('MHI_Logger')) {
+                    MHI_Logger::info($success_msg);
+                } else {
+                    error_log('MHI: ' . $success_msg);
+                }
 
                 $files[] = array(
                     'filename' => $filename,
@@ -257,7 +349,12 @@ class MHI_Hurtownia_1 implements MHI_Integration_Interface
             }
 
         } catch (Exception $e) {
-            MHI_Logger::error('Błąd podczas pobierania plików z hurtowni ' . $this->name . ': ' . $e->getMessage());
+            $error_msg = 'Błąd podczas pobierania plików z hurtowni ' . $this->name . ': ' . $e->getMessage();
+            if (class_exists('MHI_Logger')) {
+                MHI_Logger::error($error_msg);
+            } else {
+                error_log('MHI ERROR: ' . $error_msg);
+            }
         }
 
         return $files;
@@ -287,7 +384,12 @@ class MHI_Hurtownia_1 implements MHI_Integration_Interface
         $data = json_decode($json_data, true);
 
         if (json_last_error() !== JSON_ERROR_NONE) {
-            MHI_Logger::error('Błąd podczas parsowania JSON: ' . json_last_error_msg());
+            $error_msg = 'Błąd podczas parsowania JSON: ' . json_last_error_msg();
+            if (class_exists('MHI_Logger')) {
+                MHI_Logger::error($error_msg);
+            } else {
+                error_log('MHI ERROR: ' . $error_msg);
+            }
             return $json_data; // Zwróć oryginalne dane
         }
 
@@ -343,7 +445,12 @@ class MHI_Hurtownia_1 implements MHI_Integration_Interface
         $data = json_decode($json_data, true);
 
         if (json_last_error() !== JSON_ERROR_NONE) {
-            MHI_Logger::error('Błąd podczas parsowania JSON do CSV: ' . json_last_error_msg());
+            $error_msg = 'Błąd podczas parsowania JSON do CSV: ' . json_last_error_msg();
+            if (class_exists('MHI_Logger')) {
+                MHI_Logger::error($error_msg);
+            } else {
+                error_log('MHI ERROR: ' . $error_msg);
+            }
             return $json_data;
         }
 
@@ -388,7 +495,12 @@ class MHI_Hurtownia_1 implements MHI_Integration_Interface
         // Konwersja XML do tablicy
         $xml = simplexml_load_string($xml_data);
         if ($xml === false) {
-            MHI_Logger::error('Nie udało się załadować XML do konwersji na CSV');
+            $error_msg = 'Nie udało się załadować XML do konwersji na CSV';
+            if (class_exists('MHI_Logger')) {
+                MHI_Logger::error($error_msg);
+            } else {
+                error_log('MHI ERROR: ' . $error_msg);
+            }
             return $xml_data;
         }
 
@@ -424,12 +536,21 @@ class MHI_Hurtownia_1 implements MHI_Integration_Interface
         try {
             foreach ($files as $file) {
                 // TODO: Implementacja przetwarzania plików
-                MHI_Logger::info('Przetwarzanie pliku: ' . $file['filename']);
+                if (class_exists('MHI_Logger')) {
+                    MHI_Logger::info('Przetwarzanie pliku: ' . $file['filename']);
+                } else {
+                    error_log('MHI: Przetwarzanie pliku: ' . $file['filename']);
+                }
             }
 
             return true;
         } catch (Exception $e) {
-            MHI_Logger::error('Błąd podczas przetwarzania plików z hurtowni ' . $this->name . ': ' . $e->getMessage());
+            $error_msg = 'Błąd podczas przetwarzania plików z hurtowni ' . $this->name . ': ' . $e->getMessage();
+            if (class_exists('MHI_Logger')) {
+                MHI_Logger::error($error_msg);
+            } else {
+                error_log('MHI ERROR: ' . $error_msg);
+            }
             return false;
         }
     }
@@ -452,7 +573,11 @@ class MHI_Hurtownia_1 implements MHI_Integration_Interface
     public function cancel_download()
     {
         update_option('mhi_download_status_' . $this->name, __('Anulowano pobieranie.', 'multi-hurtownie-integration'));
-        MHI_Logger::info('Anulowano pobieranie dla hurtowni ' . $this->name);
+        if (class_exists('MHI_Logger')) {
+            MHI_Logger::info('Anulowano pobieranie dla hurtowni ' . $this->name);
+        } else {
+            error_log('MHI: Anulowano pobieranie dla hurtowni ' . $this->name);
+        }
     }
 
     /**
@@ -466,7 +591,11 @@ class MHI_Hurtownia_1 implements MHI_Integration_Interface
     {
         // Malfini używa adresów URL zdjęć w API, nie pobieramy bezpośrednio plików
         // Zwracamy pustą tablicę jako wynik
-        MHI_Logger::info('Hurtownia ' . $this->name . ' nie obsługuje pobierania zdjęć przez API - używa adresów URL');
+        if (class_exists('MHI_Logger')) {
+            MHI_Logger::info('Hurtownia ' . $this->name . ' nie obsługuje pobierania zdjęć przez API - używa adresów URL');
+        } else {
+            error_log('MHI: Hurtownia ' . $this->name . ' nie obsługuje pobierania zdjęć przez API - używa adresów URL');
+        }
         return array();
     }
 
@@ -509,7 +638,11 @@ class MHI_Hurtownia_1 implements MHI_Integration_Interface
         // Sprawdź czy klasa generatora istnieje
         $generator_file = MHI_PLUGIN_DIR . 'integrations/class-mhi-malfini-wc-xml-generator.php';
         if (!file_exists($generator_file)) {
-            MHI_Logger::error('Nie znaleziono pliku generatora XML WooCommerce dla Malfini');
+            if (class_exists('MHI_Logger')) {
+                MHI_Logger::error('Nie znaleziono pliku generatora XML WooCommerce dla Malfini');
+            } else {
+                error_log('MHI ERROR: Nie znaleziono pliku generatora XML WooCommerce dla Malfini');
+            }
             return false;
         }
 
@@ -526,14 +659,26 @@ class MHI_Hurtownia_1 implements MHI_Integration_Interface
             $result = $generator->generate_woocommerce_xml();
 
             if ($result) {
-                MHI_Logger::info('Pomyślnie wygenerowano plik XML do importu WooCommerce dla hurtowni ' . $this->name);
+                if (class_exists('MHI_Logger')) {
+                    MHI_Logger::info('Pomyślnie wygenerowano plik XML do importu WooCommerce dla hurtowni ' . $this->name);
+                } else {
+                    error_log('MHI: Pomyślnie wygenerowano plik XML do importu WooCommerce dla hurtowni ' . $this->name);
+                }
                 return true;
             } else {
-                MHI_Logger::error('Błąd podczas generowania pliku XML WooCommerce dla hurtowni ' . $this->name);
+                if (class_exists('MHI_Logger')) {
+                    MHI_Logger::error('Błąd podczas generowania pliku XML WooCommerce dla hurtowni ' . $this->name);
+                } else {
+                    error_log('MHI ERROR: Błąd podczas generowania pliku XML WooCommerce dla hurtowni ' . $this->name);
+                }
                 return false;
             }
         } catch (Exception $e) {
-            MHI_Logger::error('Wyjątek podczas generowania pliku XML WooCommerce dla hurtowni ' . $this->name . ': ' . $e->getMessage());
+            if (class_exists('MHI_Logger')) {
+                MHI_Logger::error('Wyjątek podczas generowania pliku XML WooCommerce dla hurtowni ' . $this->name . ': ' . $e->getMessage());
+            } else {
+                error_log('MHI ERROR: Wyjątek podczas generowania pliku XML WooCommerce dla hurtowni ' . $this->name . ': ' . $e->getMessage());
+            }
             return false;
         }
     }

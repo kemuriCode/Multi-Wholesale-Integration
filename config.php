@@ -1,87 +1,65 @@
 <?php
 /**
- * Plik konfiguracyjny pluginu Multi-Wholesale-Integration
- * 
- * Wszystkie wrażliwe dane powinny być konfigurowane przez panel administracyjny
- * lub przez zmienne środowiskowe.
- * 
+ * Plik konfiguracyjny dla Multi Wholesale Integration
+ *
  * @package MHI
  */
 
+// Zabezpieczenie przed bezpośrednim dostępem
 if (!defined('ABSPATH')) {
     exit;
 }
 
-// Domyślne adresy serwerów (publiczne informacje)
-define('MHI_DEFAULT_MALFINI_API_URL', 'https://api.malfini.com/api/v4');
-define('MHI_DEFAULT_AXPOL_XML_SERVER', 'ftp2.axpol.com.pl');
-define('MHI_DEFAULT_AXPOL_IMG_SERVER', 'ftp.axpol.com.pl');
-define('MHI_DEFAULT_INSPIRION_SERVER', 'ftp.inspirion.pl');
-define('MHI_DEFAULT_INSPIRION_EPAPER_URL', 'https://epaper.promotiontops-digital.com/PT2024/PL_mP2_ADC/');
+// Konfiguracja logowania
+define('MHI_DEBUG_MODE', true);
+define('MHI_LOG_LEVEL', 'info'); // info, warning, error
 
-// Domyślne protokoły
-define('MHI_DEFAULT_PROTOCOL_SFTP', 'sftp');
-define('MHI_DEFAULT_PROTOCOL_FTP', 'ftp');
+// Konfiguracja importu
+define('MHI_IMPORT_BATCH_SIZE', 10);
+define('MHI_IMPORT_TIMEOUT', 300);
+define('MHI_IMPORT_MEMORY_LIMIT', '512M');
 
-// Ustawienia bezpieczeństwa
-define('MHI_REQUIRE_CONFIG_FROM_ADMIN', true); // Wymusza konfigurację przez panel administracyjny
-define('MHI_LOG_CREDENTIAL_USAGE', false); // Czy logować użycie danych uwierzytelniających (tylko do debugowania)
+// Konfiguracja połączeń
+define('MHI_CONNECTION_TIMEOUT', 30);
+define('MHI_MAX_RETRIES', 3);
 
-/**
- * Funkcja pobierająca bezpieczne dane konfiguracyjne
- * 
- * @param string $key Klucz konfiguracji
- * @param mixed $default Wartość domyślna
- * @return mixed
- */
-function mhi_get_secure_config($key, $default = '')
-{
-    // Sprawdź zmienne środowiskowe najpierw
-    $env_value = getenv('MHI_' . strtoupper($key));
-    if ($env_value !== false) {
-        return $env_value;
-    }
+// Stałe dla hurtowni - WYMAGANE przez admin panel
+define('MHI_DEFAULT_MALFINI_API_URL', 'https://malfini.com/api/');
+define('MHI_DEFAULT_AXPOL_XML_SERVER', 'https://axpol.com.pl/xml/');
+define('MHI_DEFAULT_AXPOL_IMG_SERVER', 'https://axpol.com.pl/images/');
+define('MHI_DEFAULT_MACMA_API_URL', 'https://macma.pl/api/');
+define('MHI_DEFAULT_PAR_API_URL', 'https://par.com.pl/api/');
+define('MHI_DEFAULT_INSPIRION_SERVER', 'https://inspirion.pl/ftp/');
+define('MHI_DEFAULT_INSPIRION_EPAPER_URL', 'https://inspirion.pl/epaper/');
 
-    // Sprawdź opcje WordPress
-    $wp_value = get_option('mhi_' . $key, $default);
+// Domyślne ustawienia
+$mhi_default_settings = [
+    'cleanup_enabled' => true,
+    'auto_fetch_enabled' => false,
+    'fetch_interval' => 'daily',
+    'max_file_age' => 7 // dni
+];
 
-    // Loguj użycie danych uwierzytelniających (tylko jeśli włączone)
-    if (MHI_LOG_CREDENTIAL_USAGE && strpos($key, 'password') !== false) {
-        error_log('MHI: Pobrano hasło dla klucza: ' . $key);
-    }
-
-    return $wp_value;
-}
-
-/**
- * Funkcja sprawdzająca czy wszystkie wymagane dane konfiguracyjne są ustawione
- * 
- * @param array $required_keys Lista wymaganych kluczy
- * @return bool
- */
-function mhi_validate_config($required_keys)
-{
-    foreach ($required_keys as $key) {
-        $value = mhi_get_secure_config($key);
-        if (empty($value)) {
-            return false;
-        }
-    }
-    return true;
-}
-
-/**
- * Funkcja ostrzegająca o braku konfiguracji
- */
-function mhi_show_config_warning()
-{
-    if (is_admin()) {
-        add_action('admin_notices', function () {
-            echo '<div class="notice notice-warning is-dismissible">';
-            echo '<p><strong>Multi-Wholesale Integration:</strong> ';
-            echo 'Skonfiguruj dane uwierzytelniające w <a href="' . admin_url('admin.php?page=multi-hurtownie-integration') . '">ustawieniach pluginu</a>.';
-            echo '</p>';
-            echo '</div>';
-        });
-    }
-}
+// Mapowanie hurtowni
+$mhi_wholesalers = [
+    'malfini' => [
+        'name' => 'Malfini',
+        'class' => 'MHI_Hurtownia_1',
+        'file' => 'class-mhi-hurtownia-1.php'
+    ],
+    'axpol' => [
+        'name' => 'Axpol',
+        'class' => 'MHI_Hurtownia_2',
+        'file' => 'class-mhi-hurtownia-2.php'
+    ],
+    'macma' => [
+        'name' => 'Macma',
+        'class' => 'MHI_Hurtownia_3',
+        'file' => 'class-mhi-hurtownia-3.php'
+    ],
+    'par' => [
+        'name' => 'Par',
+        'class' => 'MHI_Hurtownia_4',
+        'file' => 'class-mhi-hurtownia-4.php'
+    ]
+];
