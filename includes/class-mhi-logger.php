@@ -32,7 +32,7 @@ class MHI_Logger
     {
         // Ustaw ścieżkę do pliku logów w folderze uploads
         $upload_dir = wp_upload_dir();
-        $logs_dir = trailingslashit($upload_dir['basedir']) . 'hurtownie/logs';
+        $logs_dir = trailingslashit($upload_dir['basedir']) . 'wholesale/logs';
 
         // Stwórz katalog logów, jeśli nie istnieje
         if (!file_exists($logs_dir)) {

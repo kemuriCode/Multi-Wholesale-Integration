@@ -252,7 +252,7 @@ class MHI_Cleanup
     }
 
     /**
-     * Czyści zdjęcia produktów i folder hurtownie
+     * Czyści zdjęcia produktów i folder wholesale
      * 
      * @return int Liczba usuniętych zdjęć
      */
@@ -288,7 +288,7 @@ class MHI_Cleanup
 
         // Usuń fizycznie folder hurtownie
         $upload_dir = wp_upload_dir();
-        $hurtownie_dir = trailingslashit($upload_dir['basedir']) . 'hurtownie';
+        $hurtownie_dir = trailingslashit($upload_dir['basedir']) . 'wholesale';
 
         if (file_exists($hurtownie_dir) && is_dir($hurtownie_dir)) {
             self::delete_directory_recursively($hurtownie_dir);

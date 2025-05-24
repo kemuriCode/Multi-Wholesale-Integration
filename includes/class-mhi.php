@@ -100,7 +100,7 @@ class MHI
     {
         // Tworzenie katalogów dla plików XML
         $upload_dir = wp_upload_dir();
-        $hurtownie_dir = trailingslashit($upload_dir['basedir']) . 'hurtownie';
+        $hurtownie_dir = trailingslashit($upload_dir['basedir']) . 'wholesale';
 
         if (!file_exists($hurtownie_dir)) {
             wp_mkdir_p($hurtownie_dir);

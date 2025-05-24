@@ -280,7 +280,7 @@ $active_tab = isset($_GET['tab']) ? sanitize_text_field($_GET['tab']) : 'general
                         // Sprawdź czy plik XML istnieje
                         $upload_dir = wp_upload_dir();
                         // Poprawna ścieżka dla Malfini
-                        $xml_file = trailingslashit($upload_dir['basedir']) . 'hurtownie/malfini/woocommerce_import_malfini.xml';
+                        $xml_file = trailingslashit($upload_dir['basedir']) . 'wholesale/malfini/woocommerce_import_malfini.xml';
                         $xml_exists = file_exists($xml_file);
                         $xml_date = $xml_exists ? date_i18n(get_option('date_format') . ' ' . get_option('time_format'), filemtime($xml_file)) : '';
                         ?>
@@ -386,7 +386,7 @@ $active_tab = isset($_GET['tab']) ? sanitize_text_field($_GET['tab']) : 'general
                         // Sprawdź czy plik XML istnieje
                         $upload_dir = wp_upload_dir();
                         // Poprawna ścieżka dla Axpol
-                        $xml_file = trailingslashit($upload_dir['basedir']) . 'hurtownie/axpol/woocommerce_import_axpol.xml';
+                        $xml_file = trailingslashit($upload_dir['basedir']) . 'wholesale/axpol/woocommerce_import_axpol.xml';
                         $xml_exists = file_exists($xml_file);
                         $xml_date = $xml_exists ? date_i18n(get_option('date_format') . ' ' . get_option('time_format'), filemtime($xml_file)) : '';
                         ?>
@@ -492,7 +492,7 @@ $active_tab = isset($_GET['tab']) ? sanitize_text_field($_GET['tab']) : 'general
                         // Sprawdź czy plik XML istnieje
                         $upload_dir = wp_upload_dir();
                         // Poprawna ścieżka dla PAR
-                        $xml_file = trailingslashit($upload_dir['basedir']) . 'hurtownie/par/woocommerce_import_par.xml';
+                        $xml_file = trailingslashit($upload_dir['basedir']) . 'wholesale/par/woocommerce_import_par.xml';
                         $xml_exists = file_exists($xml_file);
                         $xml_date = $xml_exists ? date_i18n(get_option('date_format') . ' ' . get_option('time_format'), filemtime($xml_file)) : '';
                         ?>
@@ -598,7 +598,7 @@ $active_tab = isset($_GET['tab']) ? sanitize_text_field($_GET['tab']) : 'general
                         // Sprawdź czy plik XML istnieje
                         $upload_dir = wp_upload_dir();
                         // Poprawna ścieżka dla Inspirion
-                        $xml_file = trailingslashit($upload_dir['basedir']) . 'hurtownie/inspirion/woocommerce_import_inspirion.xml';
+                        $xml_file = trailingslashit($upload_dir['basedir']) . 'wholesale/inspirion/woocommerce_import_inspirion.xml';
                         $xml_exists = file_exists($xml_file);
                         $xml_date = $xml_exists ? date_i18n(get_option('date_format') . ' ' . get_option('time_format'), filemtime($xml_file)) : '';
                         ?>
@@ -704,7 +704,7 @@ $active_tab = isset($_GET['tab']) ? sanitize_text_field($_GET['tab']) : 'general
                         // Sprawdź czy plik XML istnieje
                         $upload_dir = wp_upload_dir();
                         // Poprawna ścieżka dla Macma
-                        $xml_file = trailingslashit($upload_dir['basedir']) . 'hurtownie/macma/woocommerce_import_macma.xml';
+                        $xml_file = trailingslashit($upload_dir['basedir']) . 'wholesale/macma/woocommerce_import_macma.xml';
                         $xml_exists = file_exists($xml_file);
                         $xml_date = $xml_exists ? date_i18n(get_option('date_format') . ' ' . get_option('time_format'), filemtime($xml_file)) : '';
                         ?>

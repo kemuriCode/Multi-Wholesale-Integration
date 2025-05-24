@@ -189,7 +189,7 @@ class MHI_Debug_Helper
 
             // Najpierw sprawdź czy plik XML istnieje
             $upload_dir = wp_upload_dir();
-            $xml_dir = trailingslashit($upload_dir['basedir']) . 'hurtownie/' . $supplier;
+            $xml_dir = trailingslashit($upload_dir['basedir']) . 'wholesale/' . $supplier;
             $xml_file = $xml_dir . '/woocommerce_import_' . $supplier . '.xml';
 
             if (!file_exists($xml_file)) {

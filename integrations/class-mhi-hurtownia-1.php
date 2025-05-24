@@ -546,7 +546,7 @@ class MHI_Hurtownia_1 implements MHI_Integration_Interface
     public function import_products_to_woocommerce_file()
     {
         $upload_dir = wp_upload_dir();
-        $xml_file = trailingslashit($upload_dir['basedir']) . 'hurtownie/' . $this->name . '/woocommerce_import_' . $this->name . '.xml';
+        $xml_file = trailingslashit($upload_dir['basedir']) . 'wholesale/' . $this->name . '/woocommerce_import_' . $this->name . '.xml';
 
         // Sprawdź czy plik XML istnieje
         if (!file_exists($xml_file)) {

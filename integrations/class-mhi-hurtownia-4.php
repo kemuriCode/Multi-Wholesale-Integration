@@ -151,7 +151,7 @@ class MHI_Hurtownia_4 implements MHI_Integration_Interface
         try {
             // Przygotuj katalog docelowy
             $upload_dir = wp_upload_dir();
-            $target_dir = trailingslashit($upload_dir['basedir']) . 'hurtownie/' . $this->name;
+            $target_dir = trailingslashit($upload_dir['basedir']) . 'wholesale/' . $this->name;
 
             if (!file_exists($target_dir)) {
                 wp_mkdir_p($target_dir);

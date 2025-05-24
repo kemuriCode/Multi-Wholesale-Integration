@@ -50,7 +50,7 @@ if (!defined('ABSPATH')) {
                     <?php
                     // Sprawdź czy plik XML istnieje
                     $upload_dir = wp_upload_dir();
-                    $xml_file = trailingslashit($upload_dir['basedir']) . 'hurtownie/' . $supplier . '/woocommerce_import_' . $supplier . '.xml';
+                    $xml_file = trailingslashit($upload_dir['basedir']) . 'wholesale/' . $supplier . '/woocommerce_import_' . $supplier . '.xml';
                     $xml_exists = file_exists($xml_file);
                     $xml_date = $xml_exists ? date_i18n(get_option('date_format') . ' ' . get_option('time_format'), filemtime($xml_file)) : '';
 

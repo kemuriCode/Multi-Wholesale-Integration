@@ -50,7 +50,7 @@ class MHI_Malfini_WC_XML_Generator
     public function __construct()
     {
         $upload_dir = wp_upload_dir();
-        $this->source_dir = trailingslashit($upload_dir['basedir']) . 'hurtownie/' . $this->name;
+        $this->source_dir = trailingslashit($upload_dir['basedir']) . 'wholesale/' . $this->name;
         $this->target_dir = $this->source_dir;
     }
 

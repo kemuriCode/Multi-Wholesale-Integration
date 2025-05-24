@@ -63,7 +63,7 @@ class MHI_Direct_Importer
 
         // Pobierz ścieżkę do pliku XML
         $upload_dir = wp_upload_dir();
-        $this->xml_file = trailingslashit($upload_dir['basedir']) . 'hurtownie/' . $this->supplier_name . '/woocommerce_import_' . $this->supplier_name . '.xml';
+        $this->xml_file = trailingslashit($upload_dir['basedir']) . 'wholesale/' . $this->supplier_name . '/woocommerce_import_' . $this->supplier_name . '.xml';
     }
 
     /**

@@ -153,7 +153,7 @@ foreach ($suppliers as $supplier_id => $supplier_name) {
 
             // Sprawdź czy plik XML istnieje
             $upload_dir = wp_upload_dir();
-            $xml_file = trailingslashit($upload_dir['basedir']) . 'hurtownie/' . $supplier_id . '/woocommerce_import_' . $supplier_id . '.xml';
+            $xml_file = trailingslashit($upload_dir['basedir']) . 'wholesale/' . $supplier_id . '/woocommerce_import_' . $supplier_id . '.xml';
             $xml_exists = file_exists($xml_file);
 
             // Przygotuj klasy CSS

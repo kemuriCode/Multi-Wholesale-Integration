@@ -287,7 +287,7 @@ class MHI_Importer
 
         // Pobierz ścieżkę do pliku XML
         $upload_dir = wp_upload_dir();
-        $this->xml_file = trailingslashit($upload_dir['basedir']) . 'hurtownie/' . $this->supplier_name . '/woocommerce_import_' . $this->supplier_name . '.xml';
+        $this->xml_file = trailingslashit($upload_dir['basedir']) . 'wholesale/' . $this->supplier_name . '/woocommerce_import_' . $this->supplier_name . '.xml';
     }
 
     /**
@@ -1549,7 +1549,7 @@ class MHI_Importer
 
         // Przygotuj folder zapisu
         $upload_dir = wp_upload_dir();
-        $supplier_folder = trailingslashit($upload_dir['basedir']) . 'hurtownie/' . $this->supplier_name;
+        $supplier_folder = trailingslashit($upload_dir['basedir']) . 'wholesale/' . $this->supplier_name;
 
         // Utwórz folder jeśli nie istnieje
         if (!file_exists($supplier_folder)) {

@@ -61,7 +61,7 @@ if (!defined('ABSPATH')) {
                     <?php
                     // Sprawdź czy plik XML istnieje
                     $upload_dir = wp_upload_dir();
-                    $xml_file = trailingslashit($upload_dir['basedir']) . 'hurtownie/' . $supplier . '/woocommerce_import_' . $supplier . '.xml';
+                    $xml_file = trailingslashit($upload_dir['basedir']) . 'wholesale/' . $supplier . '/woocommerce_import_' . $supplier . '.xml';
                     $xml_exists = file_exists($xml_file);
 
                     // Pobierz status importu
@@ -141,7 +141,8 @@ if (!defined('ABSPATH')) {
                                                 <?php if (isset($status['processed']) && isset($status['total'])): ?>
                                                     <p><strong><?php _e('Przetworzono:', 'multi-hurtownie-integration'); ?></strong>
                                                         <?php echo esc_html($status['processed']); ?> /
-                                                        <?php echo esc_html($status['total']); ?></p>
+                                                        <?php echo esc_html($status['total']); ?>
+                                                    </p>
                                                 <?php endif; ?>
 
                                                 <?php if (!empty($elapsed_time)): ?>
@@ -162,31 +163,36 @@ if (!defined('ABSPATH')) {
                                                 <?php if (isset($status['processed'])): ?>
                                                     <p><strong><?php _e('Przetworzono:', 'multi-hurtownie-integration'); ?></strong>
                                                         <?php echo esc_html($status['processed']); ?>
-                                                        <?php _e('produktów', 'multi-hurtownie-integration'); ?></p>
+                                                        <?php _e('produktów', 'multi-hurtownie-integration'); ?>
+                                                    </p>
                                                 <?php endif; ?>
 
                                                 <?php if (isset($status['created'])): ?>
                                                     <p><strong><?php _e('Utworzono:', 'multi-hurtownie-integration'); ?></strong>
                                                         <?php echo esc_html($status['created']); ?>
-                                                        <?php _e('produktów', 'multi-hurtownie-integration'); ?></p>
+                                                        <?php _e('produktów', 'multi-hurtownie-integration'); ?>
+                                                    </p>
                                                 <?php endif; ?>
 
                                                 <?php if (isset($status['updated'])): ?>
                                                     <p><strong><?php _e('Zaktualizowano:', 'multi-hurtownie-integration'); ?></strong>
                                                         <?php echo esc_html($status['updated']); ?>
-                                                        <?php _e('produktów', 'multi-hurtownie-integration'); ?></p>
+                                                        <?php _e('produktów', 'multi-hurtownie-integration'); ?>
+                                                    </p>
                                                 <?php endif; ?>
 
                                                 <?php if (isset($status['skipped'])): ?>
                                                     <p><strong><?php _e('Pominięto:', 'multi-hurtownie-integration'); ?></strong>
                                                         <?php echo esc_html($status['skipped']); ?>
-                                                        <?php _e('produktów', 'multi-hurtownie-integration'); ?></p>
+                                                        <?php _e('produktów', 'multi-hurtownie-integration'); ?>
+                                                    </p>
                                                 <?php endif; ?>
 
                                                 <?php if (isset($status['failed'])): ?>
                                                     <p><strong><?php _e('Błędy:', 'multi-hurtownie-integration'); ?></strong>
                                                         <?php echo esc_html($status['failed']); ?>
-                                                        <?php _e('produktów', 'multi-hurtownie-integration'); ?></p>
+                                                        <?php _e('produktów', 'multi-hurtownie-integration'); ?>
+                                                    </p>
                                                 <?php endif; ?>
 
                                                 <?php if (!empty($elapsed_time)): ?>

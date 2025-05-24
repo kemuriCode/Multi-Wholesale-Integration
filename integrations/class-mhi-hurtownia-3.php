@@ -124,7 +124,7 @@ class MHI_Hurtownia_3 implements MHI_Integration_Interface
 
         // Katalog docelowy
         $uploads_dir = wp_upload_dir();
-        $target_dir = $uploads_dir['basedir'] . '/hurtownie/' . $this->name . '/';
+        $target_dir = $uploads_dir['basedir'] . '/wholesale/' . $this->name . '/';
 
         // Utwórz katalog jeśli nie istnieje
         if (!file_exists($target_dir)) {
@@ -286,9 +286,9 @@ class MHI_Hurtownia_3 implements MHI_Integration_Interface
         try {
             MHI_Logger::info("Rozpoczęcie generowania pliku XML dla WooCommerce (hurtownia {$this->name})");
 
-            // Sprawdź czy katalog uploads/hurtownie/{$this->name} istnieje
+            // Sprawdź czy katalog uploads/wholesale/{$this->name} istnieje
             $upload_dir = wp_upload_dir();
-            $hurtownia_dir = $upload_dir['basedir'] . "/hurtownie/{$this->name}/";
+            $hurtownia_dir = $upload_dir['basedir'] . "/wholesale/{$this->name}/";
 
             if (!file_exists($hurtownia_dir)) {
                 MHI_Logger::error("Błąd: Katalog {$hurtownia_dir} nie istnieje.");

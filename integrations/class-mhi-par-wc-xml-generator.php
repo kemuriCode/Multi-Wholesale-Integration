@@ -108,7 +108,7 @@ class MHI_Par_WC_XML_Generator
 
         if (empty($source_dir)) {
             $upload_dir = wp_upload_dir();
-            $this->source_dir = trailingslashit($upload_dir['basedir']) . "hurtownie/{$this->name}";
+            $this->source_dir = trailingslashit($upload_dir['basedir']) . "wholesale/{$this->name}";
         } else {
             $this->source_dir = rtrim($source_dir, '/');
         }
@@ -764,7 +764,7 @@ if (isset($argv[0]) && basename($argv[0]) == basename(__FILE__)) {
     }
 
     // Stały katalog par
-    $par_dir = '/Users/kemi/Local Sites/promoprint/app/public/wp-content/uploads/hurtownie/par';
+    $par_dir = '/Users/kemi/Local Sites/promoprint/app/public/wp-content/uploads/wholesale/par';
 
     // Sprawdź, czy katalog istnieje
     if (!file_exists($par_dir)) {
