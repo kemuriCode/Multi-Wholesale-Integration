@@ -128,12 +128,12 @@ class MHI_Admin
             'mhi_hurtownia_1_login' => array(
                 'title' => __('Login API', 'multi-hurtownie-integration'),
                 'type' => 'text',
-                'default' => 'dmurawski@promo-mix.pl'
+                'default' => ''
             ),
             'mhi_hurtownia_1_password' => array(
                 'title' => __('Hasło API', 'multi-hurtownie-integration'),
                 'type' => 'password',
-                'default' => 'mul4eQ'
+                'default' => ''
             )
         );
 
@@ -188,32 +188,32 @@ class MHI_Admin
             'mhi_hurtownia_2_xml_server' => array(
                 'title' => __('Adres serwera XML', 'multi-hurtownie-integration'),
                 'type' => 'text',
-                'default' => 'ftp2.axpol.com.pl'
+                'default' => MHI_DEFAULT_AXPOL_XML_SERVER
             ),
             'mhi_hurtownia_2_xml_login' => array(
                 'title' => __('Login dla serwera XML', 'multi-hurtownie-integration'),
                 'type' => 'text',
-                'default' => 'userPL017'
+                'default' => ''
             ),
             'mhi_hurtownia_2_xml_password' => array(
                 'title' => __('Hasło dla serwera XML', 'multi-hurtownie-integration'),
                 'type' => 'password',
-                'default' => 'vSocD2N8'
+                'default' => ''
             ),
             'mhi_hurtownia_2_img_server' => array(
                 'title' => __('Adres serwera zdjęć', 'multi-hurtownie-integration'),
                 'type' => 'text',
-                'default' => 'ftp.axpol.com.pl'
+                'default' => MHI_DEFAULT_AXPOL_IMG_SERVER
             ),
             'mhi_hurtownia_2_img_login' => array(
                 'title' => __('Login dla serwera zdjęć', 'multi-hurtownie-integration'),
                 'type' => 'text',
-                'default' => 'userPL017img'
+                'default' => ''
             ),
             'mhi_hurtownia_2_img_password' => array(
                 'title' => __('Hasło dla serwera zdjęć', 'multi-hurtownie-integration'),
                 'type' => 'password',
-                'default' => 'vSocD2N8'
+                'default' => ''
             )
         );
 
@@ -261,12 +261,12 @@ class MHI_Admin
             'mhi_hurtownia_3_api_username' => array(
                 'title' => __('Login API', 'multi-hurtownie-integration'),
                 'type' => 'text',
-                'default' => 'dmurawski@promo-mix.pl'
+                'default' => ''
             ),
             'mhi_hurtownia_3_api_password' => array(
                 'title' => __('Hasło API', 'multi-hurtownie-integration'),
                 'type' => 'password',
-                'default' => '#Reklamy!1'
+                'default' => ''
             )
         );
 
@@ -321,17 +321,17 @@ class MHI_Admin
             'mhi_hurtownia_4_server' => array(
                 'title' => __('Adres serwera', 'multi-hurtownie-integration'),
                 'type' => 'text',
-                'default' => 'ftp.inspirion.pl'
+                'default' => MHI_DEFAULT_INSPIRION_SERVER
             ),
             'mhi_hurtownia_4_login' => array(
                 'title' => __('Login', 'multi-hurtownie-integration'),
                 'type' => 'text',
-                'default' => 'inp-customer'
+                'default' => ''
             ),
             'mhi_hurtownia_4_password' => array(
                 'title' => __('Hasło', 'multi-hurtownie-integration'),
                 'type' => 'password',
-                'default' => 'Q2JG9FZLo'
+                'default' => ''
             ),
             'mhi_hurtownia_4_path' => array(
                 'title' => __('Ścieżka', 'multi-hurtownie-integration'),
@@ -341,7 +341,7 @@ class MHI_Admin
             'mhi_hurtownia_4_epaper_url' => array(
                 'title' => __('URL do epapera', 'multi-hurtownie-integration'),
                 'type' => 'text',
-                'default' => 'https://epaper.promotiontops-digital.com/PT2024/PL_mP2_ADC/'
+                'default' => MHI_DEFAULT_INSPIRION_EPAPER_URL
             )
         );
 

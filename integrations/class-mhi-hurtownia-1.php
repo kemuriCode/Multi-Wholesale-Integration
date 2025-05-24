@@ -44,9 +44,9 @@ class MHI_Hurtownia_1 implements MHI_Integration_Interface
     {
         // Inicjalizacja konfiguracji
         $this->config = array(
-            'api_base_url' => get_option('mhi_hurtownia_1_api_url', 'https://api.malfini.com/api/v4'),
-            'api_login' => get_option('mhi_hurtownia_1_api_login', 'dmurawski@promo-mix.pl'),
-            'api_password' => get_option('mhi_hurtownia_1_api_password', 'mul4eQ'),
+            'api_base_url' => get_option('mhi_hurtownia_1_api_url', MHI_DEFAULT_MALFINI_API_URL),
+            'api_login' => mhi_get_secure_config('hurtownia_1_api_login'),
+            'api_password' => mhi_get_secure_config('hurtownia_1_api_password'),
             'auth_endpoint' => 'api-auth/login',
             'product_endpoint' => 'product',
         );

@@ -19,6 +19,9 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
+// Dołącz plik konfiguracyjny
+require_once plugin_dir_path(__FILE__) . 'config.php';
+
 // Tymczasowe wyłączenie wtyczki mhi-product-importer, aby uniknąć konfliktu
 add_action('pre_update_option_active_plugins', function ($plugins) {
     foreach ($plugins as $key => $plugin) {

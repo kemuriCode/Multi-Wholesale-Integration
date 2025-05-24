@@ -88,13 +88,13 @@ class MHI_Hurtownia_2 implements MHI_Integration_Interface
     {
         // Inicjalizacja konfiguracji
         $this->config = array(
-            'xml_host' => get_option('mhi_hurtownia_2_xml_server', 'ftp.axpol.com.pl'),
-            'xml_username' => get_option('mhi_hurtownia_2_xml_login', 'userPL017'),
-            'xml_password' => get_option('mhi_hurtownia_2_xml_password', 'vSocD2N8'),
-            'img_host' => get_option('mhi_hurtownia_2_img_server', 'ftp.axpol.com.pl'),
-            'img_username' => get_option('mhi_hurtownia_2_img_login', 'userPL017img'),
-            'img_password' => get_option('mhi_hurtownia_2_img_password', 'vSocD2N8'),
-            'protocol' => get_option('mhi_hurtownia_2_protocol', 'sftp'), // Domyślnie SFTP dla AXPOL
+            'xml_host' => get_option('mhi_hurtownia_2_xml_server', MHI_DEFAULT_AXPOL_XML_SERVER),
+            'xml_username' => mhi_get_secure_config('hurtownia_2_xml_login'),
+            'xml_password' => mhi_get_secure_config('hurtownia_2_xml_password'),
+            'img_host' => get_option('mhi_hurtownia_2_img_server', MHI_DEFAULT_AXPOL_IMG_SERVER),
+            'img_username' => mhi_get_secure_config('hurtownia_2_img_login'),
+            'img_password' => mhi_get_secure_config('hurtownia_2_img_password'),
+            'protocol' => get_option('mhi_hurtownia_2_protocol', MHI_DEFAULT_PROTOCOL_SFTP), // Domyślnie SFTP dla AXPOL
             'port' => get_option('mhi_hurtownia_2_port', 2223), // Port 2223 dla SFTP AXPOL
             'batch_size' => get_option('mhi_hurtownia_2_batch_size', 20), // Liczba zdjęć w partii
             'time_limit' => get_option('mhi_hurtownia_2_time_limit', 120), // Limit czasu w sekundach
