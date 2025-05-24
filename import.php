@@ -463,51 +463,111 @@ if (!file_exists($xml_file)) {
             if (!empty((string) $product_xml->height))
                 $product->set_height((string) $product_xml->height);
 
-            // ATRYBUTY - ze standardowej struktury WooCommerce XML
+            // Inicjalizacja tablic atrybutów
             $product_attributes = [];
             $wc_attributes = [];
 
-            if (isset($product_xml->attributes) && $product_xml->attributes->attribute) {
-                $attributes = $product_xml->attributes->attribute;
-                if (!is_array($attributes))
-                    $attributes = [$attributes];
+            // ATRYBUTY z sekcji <attributes>
+            if (isset($product_xml->attributes) && isset($product_xml->attributes->attribute)) {
+                addLog("🏷️ Przetwarzam atrybuty produktu...", "info");
 
-                foreach ($attributes as $attr) {
-                    $attr_name = trim((string) $attr->name);
-                    $attr_value = trim((string) $attr->value);
+                $attributes_processed = 0;
+                foreach ($product_xml->attributes->attribute as $attribute_xml) {
+                    $attr_name = trim((string) $attribute_xml->name);
+                    $attr_value = trim((string) $attribute_xml->value);
 
-                    if (!empty($attr_name) && !empty($attr_value)) {
-                        $product_attributes[] = [
+                    if (empty($attr_name) || empty($attr_value)) {
+                        continue;
+                    }
+
+                    // Podziel wartości oddzielone przecinkami
+                    $values = array_map('trim', explode(',', $attr_value));
+                    $values = array_filter($values); // Usuń puste wartości
+    
+                    if (empty($values)) {
+                        continue;
+                    }
+
+                    addLog("🔹 Atrybut: {$attr_name} = " . implode(', ', $values), "info");
+
+                    // Dodaj do tablicy atrybutów
+                    $product_attributes[] = ['name' => $attr_name, 'value' => implode(', ', $values)];
+
+                    // Przygotuj nazwę taksonomii dla atrybutu
+                    $attr_slug = wc_sanitize_taxonomy_name($attr_name);
+                    $taxonomy = wc_attribute_taxonomy_name($attr_slug);
+
+                    // Sprawdź czy atrybut globalny już istnieje
+                    $attribute_id = wc_attribute_taxonomy_id_by_name($attr_slug);
+
+                    if (!$attribute_id) {
+                        // Utwórz nowy atrybut globalny
+                        $attribute_id = wc_create_attribute(array(
                             'name' => $attr_name,
-                            'value' => $attr_value
-                        ];
+                            'slug' => $attr_slug,
+                            'type' => 'select',
+                            'order_by' => 'menu_order',
+                            'has_archives' => false
+                        ));
 
-                        $attribute = new WC_Product_Attribute();
-                        $attribute->set_name($attr_name);
-                        $attribute->set_options([$attr_value]);
-                        $attribute->set_visible(true);
-                        $attribute->set_variation(false);
-                        $wc_attributes[] = $attribute;
+                        if (!is_wp_error($attribute_id)) {
+                            addLog("✅ Utworzono atrybut globalny: {$attr_name}", "success");
+                        } else {
+                            addLog("❌ Błąd tworzenia atrybutu: {$attr_name} - " . $attribute_id->get_error_message(), "error");
+                            continue;
+                        }
+                    }
+
+                    // Sprawdź czy taksonomia istnieje
+                    if (!taxonomy_exists($taxonomy)) {
+                        addLog("⚠️ Taksonomia {$taxonomy} nie istnieje - pomijam", "warning");
+                        continue;
+                    }
+
+                    // Utworz terminy dla wartości atrybutu
+                    $term_ids = array();
+                    foreach ($values as $value) {
+                        $term = get_term_by('name', $value, $taxonomy);
+                        if (!$term) {
+                            $term = wp_insert_term($value, $taxonomy);
+                            if (!is_wp_error($term)) {
+                                $term_ids[] = $term['term_id'];
+                                addLog("  ➕ Utworzono wartość: {$value}", "info");
+                            } else {
+                                addLog("  ❌ Błąd tworzenia wartości: {$value} - " . $term->get_error_message(), "error");
+                            }
+                        } else {
+                            $term_ids[] = $term->term_id;
+                            addLog("  ✓ Wartość istnieje: {$value}", "info");
+                        }
+                    }
+
+                    // Utwórz atrybut WooCommerce
+                    if (!empty($term_ids)) {
+                        $wc_attribute = new WC_Product_Attribute();
+                        $wc_attribute->set_name($taxonomy);
+                        $wc_attribute->set_options($term_ids);
+                        $wc_attribute->set_visible(true);
+                        $wc_attribute->set_variation(false);
+                        $wc_attributes[] = $wc_attribute;
+
+                        $attributes_processed++;
                     }
                 }
 
-                // Ustaw atrybuty na produkcie
-                if (!empty($wc_attributes)) {
-                    $product->set_attributes($wc_attributes);
+                if ($attributes_processed > 0) {
+                    addLog("✅ Przetworzono {$attributes_processed} atrybutów", "success");
+                } else {
+                    addLog("⚠️ Nie znaleziono poprawnych atrybutów do przetworzenia", "warning");
                 }
+            } else {
+                addLog("⚠️ Brak sekcji <attributes> w XML", "warning");
             }
 
-            // KOLOR jako atrybut
-            if (isset($product_xml->color) && !empty((string) $product_xml->color->name)) {
-                $color_name = trim((string) $product_xml->color->name);
-                $product_attributes[] = ['name' => 'Kolor', 'value' => $color_name];
-
-                $attribute = new WC_Product_Attribute();
-                $attribute->set_name('Kolor');
-                $attribute->set_options([$color_name]);
-                $attribute->set_visible(true);
-                $attribute->set_variation(false);
-                $wc_attributes[] = $attribute;
+            // Ustaw wszystkie atrybuty na produkcie
+            if (!empty($wc_attributes)) {
+                $product->set_attributes($wc_attributes);
+                addLog("🏷️ Ustawiono " . count($wc_attributes) . " atrybutów na produkcie", "success");
             }
 
             // ZAPISZ PRODUKT żeby uzyskać ID

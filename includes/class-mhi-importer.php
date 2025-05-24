@@ -1228,18 +1228,18 @@ class MHI_Importer
                         }
                     }
 
-                    // Zarejestruj taksonomię
-                    register_taxonomy(
-                        $taxonomy,
-                        'product',
-                        array(
-                            'hierarchical' => false,
-                            'show_ui' => true,
-                            'query_var' => true,
-                            'rewrite' => array('slug' => $slug),
-                        )
-                    );
-                    MHI_Logger::info(sprintf('Zarejestrowano taksonomię: %s', $taxonomy));
+                    // Zarejestruj taksonomię - Usunięto redundantne wywołanie, wc_create_attribute robi to samo
+                    // register_taxonomy(
+                    // $taxonomy,
+                    // 'product',
+                    // array(
+                    // 'hierarchical' => false,
+                    // 'show_ui' => true,
+                    // 'query_var' => true,
+                    // 'rewrite' => array('slug' => $slug),
+                    // )
+                    // );
+                    // MHI_Logger::info(sprintf('Zarejestrowano taksonomię: %s', $taxonomy));
                 } else {
                     // Fallback - używamy własnej metody rejestracji taksonomii
                     register_taxonomy(
