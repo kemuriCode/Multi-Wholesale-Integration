@@ -22,6 +22,13 @@
  * ✅ Konwersja do WebP i optymalizacja rozmiaru
  * ✅ Sprawdzanie duplikatów obrazów
  * ✅ Szczegółowe logi i raporty galerii
+ * 
+ * Funkcjonalność marek:
+ * ✅ Automatyczne mapowanie marek z atrybutów XML (Marka, Brand, Manufacturer, Producent, Firma)
+ * ✅ Wykrywanie istniejących taksonomii marek (product_brand, pwb-brand, yith_product_brand, itp.)
+ * ✅ Tworzenie taksonomii marek jeśli nie istnieje
+ * ✅ Przypisywanie marek do produktów z weryfikacją
+ * ✅ Backup: sprawdzanie bezpośrednich pól XML (brand, manufacturer)
  */
 
 declare(strict_types=1);
@@ -754,6 +761,50 @@ if (!file_exists($xml_file)) {
                 }
             }
 
+            // MARKI - mapowanie z atrybutów XML do taksonomii WooCommerce
+            $brand_name = '';
+
+            // Szukaj marki w atrybutach (najczęściej "Marka", "Brand", "Manufacturer")
+            if (isset($product_xml->attributes) && isset($product_xml->attributes->attribute)) {
+                foreach ($product_xml->attributes->attribute as $attribute_xml) {
+                    $attr_name = trim((string) $attribute_xml->name);
+                    $attr_value = trim((string) $attribute_xml->value);
+
+                    // Sprawdź czy to atrybut marki (różne możliwe nazwy)
+                    $brand_attribute_names = ['marka', 'brand', 'manufacturer', 'producent', 'firma'];
+
+                    if (in_array(strtolower($attr_name), $brand_attribute_names) && !empty($attr_value)) {
+                        $brand_name = $attr_value;
+                        addLog("🔍 Znaleziono markę w atrybucie '{$attr_name}': {$brand_name}", "info");
+                        break; // Użyj pierwszej znalezionej marki
+                    }
+                }
+            }
+
+            // Jeśli nie znaleziono w atrybutach, sprawdź bezpośrednie pola XML (backup)
+            if (empty($brand_name)) {
+                if (isset($product_xml->brand) && !empty(trim((string) $product_xml->brand))) {
+                    $brand_name = trim((string) $product_xml->brand);
+                    addLog("🔍 Znaleziono markę w polu 'brand': {$brand_name}", "info");
+                } elseif (isset($product_xml->manufacturer) && !empty(trim((string) $product_xml->manufacturer))) {
+                    $brand_name = trim((string) $product_xml->manufacturer);
+                    addLog("🔍 Znaleziono markę w polu 'manufacturer': {$brand_name}", "info");
+                }
+            }
+
+            if (!empty($brand_name)) {
+                addLog("🏷️ Przetwarzam markę: {$brand_name}", "info");
+
+                $brand_result = process_product_brand($brand_name, $final_product_id);
+                if ($brand_result['success']) {
+                    addLog("✅ " . $brand_result['message'], "success");
+                } else {
+                    addLog("⚠️ " . $brand_result['message'], "warning");
+                }
+            } else {
+                addLog("ℹ️ Brak marki w XML (sprawdzano atrybuty: marka, brand, manufacturer, producent, firma)", "info");
+            }
+
             // OBRAZY - obsługa <image src="URL"/> z ulepszonym systemem galerii
             if (isset($product_xml->images) && $product_xml->images->image) {
                 $images = $product_xml->images->image;
@@ -918,6 +969,124 @@ if (!file_exists($xml_file)) {
         addLog("📁 Finalne kategorie do przypisania: " . implode(', ', $category_ids), "success");
 
         return $category_ids;
+    }
+
+    /**
+     * Przetwarza markę produktu i przypisuje ją do odpowiedniej taksonomii
+     * Automatycznie wykrywa czy istnieje taksonomia marek i ją używa
+     * 
+     * @param string $brand_name Nazwa marki z XML
+     * @param int $product_id ID produktu
+     * @return array Wynik operacji z informacjami o sukcesie
+     */
+    function process_product_brand($brand_name, $product_id)
+    {
+        // Lista możliwych taksonomii marek w WooCommerce
+        $possible_brand_taxonomies = [
+            'product_brand',    // Najpopularniejsza
+            'pwb-brand',       // Perfect WooCommerce Brands
+            'yith_product_brand', // YITH WooCommerce Brands
+            'product_brands',   // Alternatywna nazwa
+            'brands',          // Prosta nazwa
+            'pa_brand',        // Jako atrybut globalny
+            'pa_marka'         // Polski atrybut globalny
+        ];
+
+        $brand_taxonomy = null;
+
+        // Znajdź pierwszą istniejącą taksonomię marek
+        foreach ($possible_brand_taxonomies as $taxonomy) {
+            if (taxonomy_exists($taxonomy)) {
+                $brand_taxonomy = $taxonomy;
+                addLog("  🔍 Znaleziono taksonomię marek: {$taxonomy}", "info");
+                break;
+            }
+        }
+
+        // Jeśli nie ma żadnej taksonomii marek, utwórz prostą
+        if (!$brand_taxonomy) {
+            addLog("  ⚠️ Brak taksonomii marek - tworzę 'product_brand'", "warning");
+
+            // Zarejestruj taksonomię marek
+            register_taxonomy('product_brand', 'product', [
+                'label' => 'Marki',
+                'labels' => [
+                    'name' => 'Marki',
+                    'singular_name' => 'Marka',
+                    'menu_name' => 'Marki',
+                    'all_items' => 'Wszystkie marki',
+                    'edit_item' => 'Edytuj markę',
+                    'view_item' => 'Zobacz markę',
+                    'update_item' => 'Aktualizuj markę',
+                    'add_new_item' => 'Dodaj nową markę',
+                    'new_item_name' => 'Nazwa nowej marki',
+                    'search_items' => 'Szukaj marek',
+                    'not_found' => 'Nie znaleziono marek'
+                ],
+                'hierarchical' => false,
+                'public' => true,
+                'show_ui' => true,
+                'show_admin_column' => true,
+                'show_in_nav_menus' => true,
+                'show_tagcloud' => true,
+                'show_in_rest' => true,
+                'rewrite' => ['slug' => 'marka'],
+                'query_var' => true,
+            ]);
+
+            $brand_taxonomy = 'product_brand';
+            addLog("  ✅ Utworzono taksonomię marek: product_brand", "success");
+        }
+
+        // Sprawdź czy marka już istnieje
+        $existing_term = get_term_by('name', $brand_name, $brand_taxonomy);
+
+        if (!$existing_term) {
+            // Utwórz nową markę
+            $term_result = wp_insert_term($brand_name, $brand_taxonomy, [
+                'description' => "Marka: {$brand_name}",
+                'slug' => sanitize_title($brand_name)
+            ]);
+
+            if (is_wp_error($term_result)) {
+                return [
+                    'success' => false,
+                    'message' => "Błąd tworzenia marki {$brand_name}: " . $term_result->get_error_message(),
+                    'taxonomy' => $brand_taxonomy
+                ];
+            }
+
+            $brand_term_id = $term_result['term_id'];
+            addLog("  ➕ Utworzono markę: {$brand_name} (ID: {$brand_term_id})", "info");
+        } else {
+            $brand_term_id = $existing_term->term_id;
+            addLog("  ✓ Marka istnieje: {$brand_name} (ID: {$brand_term_id})", "info");
+        }
+
+        // Przypisz markę do produktu
+        $assign_result = wp_set_object_terms($product_id, [$brand_term_id], $brand_taxonomy);
+
+        if (is_wp_error($assign_result)) {
+            return [
+                'success' => false,
+                'message' => "Błąd przypisania marki {$brand_name}: " . $assign_result->get_error_message(),
+                'taxonomy' => $brand_taxonomy
+            ];
+        }
+
+        // Weryfikacja - sprawdź czy marka została przypisana
+        $assigned_brands = wp_get_object_terms($product_id, $brand_taxonomy, ['fields' => 'names']);
+        if (!is_wp_error($assigned_brands) && in_array($brand_name, $assigned_brands)) {
+            addLog("  ✅ Weryfikacja: Marka {$brand_name} przypisana do produktu", "info");
+        }
+
+        return [
+            'success' => true,
+            'message' => "Przypisano markę: {$brand_name} (taksonomia: {$brand_taxonomy})",
+            'taxonomy' => $brand_taxonomy,
+            'term_id' => $brand_term_id,
+            'brand_name' => $brand_name
+        ];
     }
 
     /**
