@@ -1345,7 +1345,7 @@ class MHI_Importer
             }
 
             $attributes[$taxonomy] = array(
-                'name' => $taxonomy,
+                'name' => $name,
                 'value' => '',
                 'position' => isset($attribute->position) ? (int) $attribute->position : 0,
                 'is_visible' => $is_visible,
@@ -1547,23 +1547,42 @@ class MHI_Importer
             return $attachment_by_filename;
         }
 
-        // Przygotuj folder zapisu
-        $upload_dir = wp_upload_dir();
-        $supplier_folder = trailingslashit($upload_dir['basedir']) . 'wholesale/' . $this->supplier_name;
+        // Generuj losową datę z ostatnich 18 miesięcy dla lepszej organizacji folderów
+        $months_back = rand(1, 18); // losowo 1-18 miesięcy wstecz
+        $random_timestamp = strtotime("-{$months_back} months");
 
-        // Utwórz folder jeśli nie istnieje
-        if (!file_exists($supplier_folder)) {
-            wp_mkdir_p($supplier_folder);
-        }
+        // Dodatkowo losuj dzień w miesiącu
+        $year = (int) date('Y', $random_timestamp);
+        $month = (int) date('m', $random_timestamp);
+        $day = rand(1, 28); // maksymalnie 28, żeby być bezpiecznym dla lutego
+        $hour = rand(8, 18); // godziny robocze
+        $minute = rand(0, 59);
+        $second = rand(0, 59);
+
+        $final_timestamp = mktime($hour, $minute, $second, $month, $day, $year);
+
+        MHI_Logger::info(sprintf('Używam daty publikacji: %s (folder: %s)', date('Y-m-d H:i:s', $final_timestamp), date('Y/m', $final_timestamp)));
+
+        // Użyj konkretnej daty dla wp_upload_dir - WordPress automatycznie utworzy folder roczno-miesięczny
+        $upload_dir = wp_upload_dir(date('Y/m', $final_timestamp));
 
         // Przygotuj nazwę pliku (unikalna)
-        $filename = wp_unique_filename($supplier_folder, sanitize_file_name(basename($image_url)));
-        $filepath = $supplier_folder . '/' . $filename;
+        $filename = wp_unique_filename($upload_dir['path'], sanitize_file_name(basename($image_url)));
+        $filepath = $upload_dir['path'] . '/' . $filename;
 
         // Pobierz obrazek
         $response = wp_remote_get($image_url, array(
-            'timeout' => 30,
+            'timeout' => 60,
             'sslverify' => false,
+            'user-agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'headers' => array(
+                'Accept' => 'image/*,*/*;q=0.9',
+                'Accept-Language' => 'pl-PL,pl;q=0.9,en;q=0.8',
+                'Accept-Encoding' => 'gzip, deflate, br',
+                'Cache-Control' => 'no-cache',
+                'Connection' => 'keep-alive'
+            ),
+            'redirection' => 5
         ));
 
         if (is_wp_error($response)) {
@@ -1590,6 +1609,29 @@ class MHI_Importer
             return false;
         }
 
+        // Sprawdź czy pobrane dane to rzeczywiście obraz
+        $image_info = @getimagesizefromstring($image_data);
+        if (!$image_info) {
+            MHI_Logger::error(sprintf('Pobrane dane nie są prawidłowym obrazem: %s', $image_url));
+            return false;
+        }
+
+        // Sprawdź rozmiar pliku (maksymalnie 10MB)
+        $image_size = strlen($image_data);
+        $max_size = 10 * 1024 * 1024; // 10MB
+        if ($image_size > $max_size) {
+            MHI_Logger::warning(sprintf('Obraz jest za duży (%s), pomijam: %s', size_format($image_size), $image_url));
+            return false;
+        }
+
+        MHI_Logger::info(sprintf(
+            'Pobrano obraz: %dx%d px, %s, %s',
+            $image_info[0],
+            $image_info[1],
+            $image_info['mime'],
+            size_format($image_size)
+        ));
+
         // Zapisz oryginalny plik
         $saved = file_put_contents($filepath, $image_data);
         if (!$saved) {
@@ -1612,14 +1654,18 @@ class MHI_Importer
         $relative_path = substr($final_path, strlen($upload_path) + 1); // +1 dla /
         MHI_Logger::info(sprintf('Ścieżka względna pliku: %s', $relative_path));
 
-        // Przygotuj dane załącznika
+        // Przygotuj dane załącznika z odpowiednią datą publikacji
         $filetype = wp_check_filetype(basename($final_path), null);
         $attachment = array(
             'guid' => $upload_dir['baseurl'] . '/' . $relative_path,
             'post_mime_type' => $filetype['type'],
             'post_title' => preg_replace('/\.[^.]+$/', '', basename($final_path)),
             'post_content' => '',
-            'post_status' => 'inherit'
+            'post_status' => 'inherit',
+            'post_date' => date('Y-m-d H:i:s', $final_timestamp),
+            'post_date_gmt' => gmdate('Y-m-d H:i:s', $final_timestamp),
+            'post_modified' => date('Y-m-d H:i:s', $final_timestamp),
+            'post_modified_gmt' => gmdate('Y-m-d H:i:s', $final_timestamp)
         );
 
         MHI_Logger::info(sprintf('Dodawanie załącznika do biblioteki mediów: %s', $relative_path));
@@ -1654,6 +1700,16 @@ class MHI_Importer
         update_post_meta($attachment_id, '_mhi_original_url', $image_url);
         update_post_meta($attachment_id, '_mhi_supplier', $this->supplier_name);
         update_post_meta($attachment_id, '_mhi_imported', 'yes');
+        update_post_meta($attachment_id, '_mhi_random_date', date('Y-m-d H:i:s', $final_timestamp));
+        update_post_meta($attachment_id, '_mhi_folder_path', date('Y/m', $final_timestamp));
+
+        // Zapisz informacje o konwersji WebP
+        $is_webp = (pathinfo($final_path, PATHINFO_EXTENSION) === 'webp');
+        update_post_meta($attachment_id, '_mhi_webp_converted', $is_webp ? 'yes' : 'no');
+        if ($is_webp && $optimized_path) {
+            update_post_meta($attachment_id, '_mhi_original_format', pathinfo($filepath, PATHINFO_EXTENSION));
+            update_post_meta($attachment_id, '_mhi_optimization_savings', $this->calculate_optimization_savings($filepath, $final_path));
+        }
 
         // Upewnij się, że załącznik jest widoczny w bibliotece mediów
         if (!wp_get_attachment_url($attachment_id)) {
@@ -1671,7 +1727,8 @@ class MHI_Importer
             MHI_Logger::info(sprintf('Naprawiono załącznik ID: %d, URL: %s', $attachment_id, $upload_dir['baseurl'] . '/' . $relative_path));
         }
 
-        MHI_Logger::info(sprintf('Załącznik dodany do biblioteki mediów ID: %d, URL: %s', $attachment_id, wp_get_attachment_url($attachment_id)));
+        $folder_info = date('Y/m', $final_timestamp);
+        MHI_Logger::info(sprintf('Załącznik dodany do biblioteki mediów ID: %d, URL: %s → %s/', $attachment_id, wp_get_attachment_url($attachment_id), $folder_info));
 
         return $attachment_id;
     }
@@ -1723,6 +1780,14 @@ class MHI_Importer
                 case 'image/gif':
                     $image = imagecreatefromgif($source_path);
                     break;
+                case 'image/webp':
+                    if (function_exists('imagecreatefromwebp')) {
+                        $image = imagecreatefromwebp($source_path);
+                    } else {
+                        MHI_Logger::warning(sprintf('WebP już jest WebP, ale brak funkcji imagecreatefromwebp: %s', $source_path));
+                        return $source_path; // Zwróć oryginalny plik
+                    }
+                    break;
                 default:
                     MHI_Logger::warning(sprintf('Nieobsługiwany typ obrazu: %s - %s', $mime_type, $source_path));
                     return false;
@@ -1733,12 +1798,57 @@ class MHI_Importer
                 return false;
             }
 
-            // Zapisz jako WebP
-            $success = imagewebp($image, $webp_path, 80);
-            imagedestroy($image);
+            // Optymalizuj wielkość obrazu - ustaw maksymalną szerokość
+            $max_width = 1200;
+            $original_width = imagesx($image);
+            $original_height = imagesy($image);
+
+            $optimized_image = $image;
+
+            if ($original_width > $max_width) {
+                $ratio = $max_width / $original_width;
+                $new_width = $max_width;
+                $new_height = intval($original_height * $ratio);
+
+                $optimized_image = imagecreatetruecolor($new_width, $new_height);
+
+                // Zachowaj przezroczystość dla PNG/GIF
+                if ($mime_type === 'image/png' || $mime_type === 'image/gif') {
+                    imagealphablending($optimized_image, false);
+                    imagesavealpha($optimized_image, true);
+                    $transparent = imagecolorallocatealpha($optimized_image, 255, 255, 255, 127);
+                    imagefill($optimized_image, 0, 0, $transparent);
+                }
+
+                imagecopyresampled($optimized_image, $image, 0, 0, 0, 0, $new_width, $new_height, $original_width, $original_height);
+                imagedestroy($image);
+
+                MHI_Logger::info(sprintf('Zmieniono rozmiar obrazu z %dx%d na %dx%d px', $original_width, $original_height, $new_width, $new_height));
+            }
+
+            // Zapisz jako WebP z lepszą jakością
+            $quality = 85; // Wyższa jakość niż 80
+            $success = imagewebp($optimized_image, $webp_path, $quality);
+            imagedestroy($optimized_image);
 
             if ($success) {
-                MHI_Logger::info(sprintf('Obraz zoptymalizowany i przekonwertowany do WebP: %s', basename($webp_path)));
+                // Sprawdź czy plik WebP jest mniejszy niż oryginalny
+                $original_size = filesize($source_path);
+                $webp_size = filesize($webp_path);
+                $savings = round((($original_size - $webp_size) / $original_size) * 100, 1);
+
+                MHI_Logger::info(sprintf(
+                    'Obraz zoptymalizowany do WebP: %s (jakość: %d%%, oszczędność: %s%%, %s -> %s)',
+                    basename($webp_path),
+                    $quality,
+                    $savings,
+                    size_format($original_size),
+                    size_format($webp_size)
+                ));
+
+                // Usuń oryginalny plik jeśli konwersja zakończyła się sukcesem
+                @unlink($source_path);
+
                 return $webp_path;
             } else {
                 MHI_Logger::error(sprintf('Nie udało się zapisać obrazu WebP: %s', basename($webp_path)));
@@ -1752,6 +1862,30 @@ class MHI_Importer
             ));
             return false;
         }
+    }
+
+    /**
+     * Oblicza oszczędności z optymalizacji obrazu.
+     * 
+     * @param string $original_path Ścieżka do oryginalnego pliku.
+     * @param string $optimized_path Ścieżka do zoptymalizowanego pliku.
+     * @return string Procent oszczędności jako string.
+     */
+    private function calculate_optimization_savings($original_path, $optimized_path)
+    {
+        if (!file_exists($original_path) || !file_exists($optimized_path)) {
+            return '0%';
+        }
+
+        $original_size = filesize($original_path);
+        $optimized_size = filesize($optimized_path);
+
+        if ($original_size == 0) {
+            return '0%';
+        }
+
+        $savings = round((($original_size - $optimized_size) / $original_size) * 100, 1);
+        return $savings . '%';
     }
 
     /**

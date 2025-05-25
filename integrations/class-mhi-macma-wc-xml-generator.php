@@ -709,7 +709,7 @@ class MHI_Macma_WC_XML_Generator
             $this->log('debug_generate.txt', "Tworzenie pliku z nagłówkiem XML");
 
             // Tworzenie pliku z nagłówkiem XML
-            file_put_contents($output_file, '<?xml version="1.0" encoding="UTF-8"?><products>', FILE_USE_INCLUDE_PATH);
+            file_put_contents($output_file, '<?xml version="1.0" encoding="UTF-8"?><products>');
             $this->log('debug_generate.txt', "Utworzono plik z nagłówkiem XML ({$timestamp})");
 
             // Kontener na aktualny wsad XML
@@ -746,7 +746,7 @@ class MHI_Macma_WC_XML_Generator
                     // Kiedy osiągniemy rozmiar porcji, zapisujemy do pliku
                     if ($processed_count % $batch_size === 0) {
                         $batch_count++;
-                        file_put_contents($output_file, $xml_chunk, FILE_APPEND | FILE_USE_INCLUDE_PATH);
+                        file_put_contents($output_file, $xml_chunk, FILE_APPEND);
                         $xml_chunk = ''; // Resetujemy porcję
 
                         $this->log('debug_generate.txt', "Zapisano wsad {$batch_count} z {$total_batches} ({$processed_count} produktów)");
@@ -771,13 +771,13 @@ class MHI_Macma_WC_XML_Generator
 
             // Zapisz pozostałe produkty
             if (!empty($xml_chunk)) {
-                file_put_contents($output_file, $xml_chunk, FILE_APPEND | FILE_USE_INCLUDE_PATH);
+                file_put_contents($output_file, $xml_chunk, FILE_APPEND);
                 $remaining_count = $processed_count % $batch_size;
                 $this->log('debug_generate.txt', "Zapisano pozostałe produkty: {$remaining_count} ({$timestamp})");
             }
 
             // Zamknij znacznik główny
-            file_put_contents($output_file, '</products>', FILE_APPEND | FILE_USE_INCLUDE_PATH);
+            file_put_contents($output_file, '</products>', FILE_APPEND);
 
             // Podsumowanie procesu
             $end_time = microtime(true);
@@ -1425,62 +1425,71 @@ class MHI_Macma_WC_XML_Generator
             $this->add_xml_element($dom, $marking_attribute, 'global', '0');
         }
 
-        // Dodajemy obrazy produktu (jeśli są dostępne)
+        // OBRAZY - używamy oryginalnych obrazów z danych produktu
         $images_element = $dom->createElement('images');
         $item->appendChild($images_element);
 
-        // Generujemy ścieżki obrazów na podstawie ID produktu
-        // Domyślna ścieżka do obrazów Macma
-        $image_base_url = 'https://www.macma.pl/UserFiles/Catalog/Products/';
+        $image_added = false;
 
-        // Obrazy główne i dodatkowe
-        if (!empty($code_short)) {
-            // Dodanie głównego obrazu
-            $main_image = $dom->createElement('image');
-            $images_element->appendChild($main_image);
+        // Próbuj pobrać obrazy z różnych miejsc w XML produktu
+        if (isset($product->images)) {
+            // Obsługa image1, image2, image3, etc.
+            for ($i = 1; $i <= 10; $i++) {
+                $image_key = 'image' . $i;
+                if (isset($product->images->$image_key)) {
+                    $image_url = trim((string) $product->images->$image_key);
+                    if (!empty($image_url) && filter_var($image_url, FILTER_VALIDATE_URL)) {
+                        // Format ujednolicony: <image src="URL"></image>
+                        $image_element = $dom->createElement('image');
+                        $image_element->setAttribute('src', $image_url);
+                        $images_element->appendChild($image_element);
 
-            $main_image_url = $image_base_url . $code_short . '/main.jpg';
-            $this->add_xml_element($dom, $main_image, 'src', $main_image_url);
-            $this->add_xml_element($dom, $main_image, 'position', '0');
-
-            // Dodanie dodatkowych obrazów jeśli istnieją
-            for ($i = 1; $i <= 5; $i++) { // Zakładamy maks. 5 dodatkowych obrazów
-                $additional_image = $dom->createElement('image');
-                $images_element->appendChild($additional_image);
-
-                $additional_image_url = $image_base_url . $code_short . '/' . $i . '.jpg';
-                $this->add_xml_element($dom, $additional_image, 'src', $additional_image_url);
-                $this->add_xml_element($dom, $additional_image, 'position', $i);
-            }
-        } else {
-            // Próba pobrania obrazów bezpośrednio z produktu
-            $image_urls = [];
-
-            if (isset($product->images) && isset($product->images->image)) {
-                foreach ($product->images->image as $image) {
-                    if (isset($image->url)) {
-                        $image_urls[] = (string) $image->url;
-                    } else if (isset($image->src)) {
-                        $image_urls[] = (string) $image->src;
-                    } else {
-                        $image_url = (string) $image;
-                        if (!empty($image_url)) {
-                            $image_urls[] = $image_url;
-                        }
+                        $image_added = true;
+                        $this->log('debug_images.txt', "Dodano obraz {$i}: {$image_url}");
                     }
                 }
-            } elseif (isset($product->main_image) && !empty($product->main_image)) {
-                $image_urls[] = (string) $product->main_image;
             }
 
-            // Dodajemy znalezione obrazy
-            foreach ($image_urls as $index => $image_url) {
+            // Obsługa innych formatów obrazów
+            if (isset($product->images->image)) {
+                foreach ($product->images->image as $image) {
+                    if (isset($image->url)) {
+                        $image_url = trim((string) $image->url);
+                    } elseif (isset($image->src)) {
+                        $image_url = trim((string) $image->src);
+                    } else {
+                        $image_url = trim((string) $image);
+                    }
+
+                    if (!empty($image_url) && filter_var($image_url, FILTER_VALIDATE_URL)) {
+                        // Format ujednolicony: <image src="URL"></image>
+                        $image_element = $dom->createElement('image');
+                        $image_element->setAttribute('src', $image_url);
+                        $images_element->appendChild($image_element);
+
+                        $image_added = true;
+                        $this->log('debug_images.txt', "Dodano obraz z kolekcji: {$image_url}");
+                    }
+                }
+            }
+        }
+
+        // Fallback dla pojedynczego głównego obrazu
+        if (!$image_added && isset($product->main_image) && !empty($product->main_image)) {
+            $image_url = trim((string) $product->main_image);
+            if (!empty($image_url) && filter_var($image_url, FILTER_VALIDATE_URL)) {
+                // Format ujednolicony: <image src="URL"></image>
                 $image_element = $dom->createElement('image');
+                $image_element->setAttribute('src', $image_url);
                 $images_element->appendChild($image_element);
 
-                $this->add_xml_element($dom, $image_element, 'src', $image_url);
-                $this->add_xml_element($dom, $image_element, 'position', $index);
+                $image_added = true;
+                $this->log('debug_images.txt', "Dodano główny obraz: {$image_url}");
             }
+        }
+
+        if (!$image_added) {
+            $this->log('debug_images.txt', "Brak obrazów dla produktu kod: {$code}");
         }
     }
 
@@ -1773,7 +1782,7 @@ if (isset($argv[0]) && basename($argv[0]) == basename(__FILE__)) {
     }
 
     // Stały katalog macma
-            $macma_dir = '/Users/kemi/Local Sites/promoprint/app/public/wp-content/uploads/wholesale/macma';
+    $macma_dir = '/Users/kemi/Local Sites/promoprint/app/public/wp-content/uploads/wholesale/macma';
 
     // Sprawdź, czy katalog istnieje
     if (!file_exists($macma_dir)) {

@@ -605,7 +605,7 @@ class MHI_Direct_Importer
 
                 // Dodaj atrybut do tablicy atrybutów
                 $attributes[$taxonomy] = array(
-                    'name' => $taxonomy,
+                    'name' => $name,
                     'value' => '',
                     'position' => isset($attribute->position) ? (int) $attribute->position : 0,
                     'is_visible' => isset($attribute->visible) ? ((string) $attribute->visible === 'yes') : true,
@@ -699,20 +699,38 @@ class MHI_Direct_Importer
         // Przygotuj nazwę pliku
         $filename = basename(parse_url($image_url, PHP_URL_PATH));
 
-        // Sprawdź katalog uploads
-        $upload_dir = wp_upload_dir();
+        // Generuj losową datę z ostatnich 18 miesięcy dla lepszej organizacji folderów
+        $months_back = rand(1, 18); // losowo 1-18 miesięcy wstecz
+        $random_timestamp = strtotime("-{$months_back} months");
+
+        // Dodatkowo losuj dzień w miesiącu
+        $year = (int) date('Y', $random_timestamp);
+        $month = (int) date('m', $random_timestamp);
+        $day = rand(1, 28); // maksymalnie 28, żeby być bezpiecznym dla lutego
+        $hour = rand(8, 18); // godziny robocze
+        $minute = rand(0, 59);
+        $second = rand(0, 59);
+
+        $final_timestamp = mktime($hour, $minute, $second, $month, $day, $year);
+
+        // Użyj konkretnej daty dla wp_upload_dir - WordPress automatycznie utworzy folder roczno-miesięczny
+        $upload_dir = wp_upload_dir(date('Y/m', $final_timestamp));
         $upload_path = $upload_dir['path'] . '/' . sanitize_file_name($filename);
 
         // Zapisz plik
         file_put_contents($upload_path, $image_data);
 
-        // Przygotuj dane załącznika
+        // Przygotuj dane załącznika z odpowiednią datą publikacji
         $wp_filetype = wp_check_filetype($filename, null);
         $attachment = array(
             'post_mime_type' => $wp_filetype['type'],
             'post_title' => sanitize_file_name($filename),
             'post_content' => '',
-            'post_status' => 'inherit'
+            'post_status' => 'inherit',
+            'post_date' => date('Y-m-d H:i:s', $final_timestamp),
+            'post_date_gmt' => gmdate('Y-m-d H:i:s', $final_timestamp),
+            'post_modified' => date('Y-m-d H:i:s', $final_timestamp),
+            'post_modified_gmt' => gmdate('Y-m-d H:i:s', $final_timestamp)
         );
 
         // Wstaw załącznik
@@ -727,6 +745,10 @@ class MHI_Direct_Importer
         if (!empty($alt_text)) {
             update_post_meta($attachment_id, '_wp_attachment_image_alt', $alt_text);
         }
+
+        // Zapisz informacje o losowej dacie i folderze
+        update_post_meta($attachment_id, '_mhi_random_date', date('Y-m-d H:i:s', $final_timestamp));
+        update_post_meta($attachment_id, '_mhi_folder_path', date('Y/m', $final_timestamp));
 
         return $attachment_id;
     }

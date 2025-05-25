@@ -5,6 +5,23 @@
  * 
  * Sposób użycia: 
  * /wp-content/plugins/multi-wholesale-integration/import.php?supplier=malfini
+ * 
+ * Dostępne opcje URL:
+ * - supplier=nazwa_hurtowni (wymagane)
+ * - admin_key=mhi_import_access (alternatywa dla uprawnień)
+ * - replace_images=1 (zastąp istniejące obrazy galerii przy aktualizacji)
+ * - test_xml=1 (użyj test_gallery.xml zamiast głównego pliku)
+ * - test_gallery=ID_PRODUKTU (testuj galerię konkretnego produktu)
+ * - fix_gallery=ID_PRODUKTU (napraw galerię produktu z istniejących załączników)
+ * 
+ * Funkcjonalność galerii:
+ * ✅ Pierwszy obraz z XML staje się głównym zdjęciem produktu
+ * ✅ Pozostałe obrazy trafiają do galerii WooCommerce
+ * ✅ Automatyczne łączenie z istniejącą galerią przy aktualizacji
+ * ✅ Opcja zastąpienia galerii parametrem replace_images=1
+ * ✅ Konwersja do WebP i optymalizacja rozmiaru
+ * ✅ Sprawdzanie duplikatów obrazów
+ * ✅ Szczegółowe logi i raporty galerii
  */
 
 declare(strict_types=1);
@@ -40,7 +57,13 @@ if (!class_exists('WooCommerce')) {
 
 // Znajdź plik XML
 $upload_dir = wp_upload_dir();
-$xml_file = trailingslashit($upload_dir['basedir']) . 'wholesale/' . $supplier . '/woocommerce_import_' . $supplier . '.xml';
+
+// Sprawdź czy to test galerii
+if (isset($_GET['test_xml']) && $_GET['test_xml'] === '1') {
+    $xml_file = trailingslashit($upload_dir['basedir']) . 'wholesale/' . $supplier . '/test_gallery.xml';
+} else {
+    $xml_file = trailingslashit($upload_dir['basedir']) . 'wholesale/' . $supplier . '/woocommerce_import_' . $supplier . '.xml';
+}
 
 if (!file_exists($xml_file)) {
     wp_die('Plik XML nie istnieje: ' . $xml_file . '<br>Najpierw wygeneruj plik XML dla hurtowni: ' . $supplier);
@@ -52,7 +75,8 @@ if (!file_exists($xml_file)) {
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" conten t="width=device-width, initial-scale=
+    1.0">
     <title>🚀 IMPORT PRODUKTÓW - <?php echo strtoupper($supplier); ?></title>
     <style>
         * {
@@ -256,6 +280,8 @@ if (!file_exists($xml_file)) {
 
 <body>
     <div class="container">
+
+
         <h1>🚀 IMPORT PRODUKTÓW - <?php echo strtoupper($supplier); ?></h1>
 
         <div class="current-product" id="currentProduct" style="display: none;">
@@ -466,7 +492,8 @@ if (!file_exists($xml_file)) {
             // Inicjalizacja tablic atrybutów
             $product_attributes = [];
             $wc_attributes = [];
-
+            $attributes_to_assign = []; // Nowa tablica do przechowania atrybutów
+    
             // ATRYBUTY z sekcji <attributes>
             if (isset($product_xml->attributes) && isset($product_xml->attributes->attribute)) {
                 addLog("🏷️ Przetwarzam atrybuty produktu...", "info");
@@ -542,7 +569,7 @@ if (!file_exists($xml_file)) {
                         }
                     }
 
-                    // Utwórz atrybut WooCommerce
+                    // Utwórz atrybut WooCommerce i zachowaj informacje o terminach
                     if (!empty($term_ids)) {
                         $wc_attribute = new WC_Product_Attribute();
                         $wc_attribute->set_name($taxonomy);
@@ -551,7 +578,15 @@ if (!file_exists($xml_file)) {
                         $wc_attribute->set_variation(false);
                         $wc_attributes[] = $wc_attribute;
 
+                        // Zachowaj informacje o terminach do przypisania po zapisaniu produktu
+                        $attributes_to_assign[] = [
+                            'taxonomy' => $taxonomy,
+                            'term_ids' => $term_ids,
+                            'name' => $attr_name
+                        ];
+
                         $attributes_processed++;
+                        addLog("  ✅ Przygotowano atrybut {$attr_name} z " . count($term_ids) . " wartościami", "success");
                     }
                 }
 
@@ -571,10 +606,34 @@ if (!file_exists($xml_file)) {
             }
 
             // ZAPISZ PRODUKT żeby uzyskać ID
-            $product_id = $product->save();
+            $saved_product_id = $product->save();
 
-            if (!$product_id) {
+            if (!$saved_product_id) {
                 throw new Exception("Nie można zapisać produktu");
+            }
+
+            // Użyj odpowiedniego ID produktu
+            if ($is_update) {
+                // Dla aktualizacji użyj oryginalnego ID
+                $final_product_id = $product_id;
+            } else {
+                // Dla nowego produktu użyj ID z save()
+                $final_product_id = $saved_product_id;
+                $product_id = $saved_product_id; // Ustaw także dla dalszego kodu
+            }
+
+            // PRZYPISZ TERMINY ATRYBUTÓW - to jest kluczowe dla poprawnego wyświetlania!
+            if (!empty($attributes_to_assign)) {
+                addLog("🔗 Przypisuję terminy atrybutów do produktu ID: {$final_product_id}", "info");
+                foreach ($attributes_to_assign as $attr_info) {
+                    $result = wp_set_object_terms($final_product_id, $attr_info['term_ids'], $attr_info['taxonomy']);
+                    if (!is_wp_error($result)) {
+                        addLog("  ✅ Przypisano " . count($attr_info['term_ids']) . " wartości dla atrybutu {$attr_info['name']}", "success");
+                    } else {
+                        addLog("  ❌ Błąd przypisania atrybutu {$attr_info['name']}: " . $result->get_error_message(), "error");
+                    }
+                }
+                addLog("🏷️ Zakończono przypisywanie atrybutów", "success");
             }
 
             // KATEGORIE z dekodowaniem HTML entities
@@ -587,85 +646,85 @@ if (!file_exists($xml_file)) {
 
                     $category_ids = process_product_categories($categories_text);
                     if (!empty($category_ids)) {
-                        wp_set_object_terms($product_id, $category_ids, 'product_cat');
+                        wp_set_object_terms($final_product_id, $category_ids, 'product_cat');
                         addLog("✅ Przypisano " . count($category_ids) . " kategorii", "success");
                     }
                 }
             }
 
-            // OBRAZY - obsługa <image src="URL"/>
+            // OBRAZY - obsługa <image src="URL"/> z ulepszonym systemem galerii
             if (isset($product_xml->images) && $product_xml->images->image) {
                 $images = $product_xml->images->image;
-                if (!is_array($images))
-                    $images = [$images];
+                addLog("🔍 DEBUG: Typ images przed konwersją: " . gettype($images), "info");
+                addLog("🔍 DEBUG: Czy images jest obiektem SimpleXML: " . (is_object($images) ? 'TAK' : 'NIE'), "info");
 
-                $image_ids = [];
-                $img_counter = 0;
-
-                addLog("📷 Szukam obrazków dla produktu...", "info");
-
-                foreach ($images as $image) {
-                    $image_url = '';
-
-                    // Sprawdź atrybut src
-                    $attributes = $image->attributes();
-                    if (isset($attributes['src'])) {
-                        $image_url = trim((string) $attributes['src']);
-                    } else {
-                        $image_url = trim((string) $image);
+                // Konwertuj SimpleXML do tablicy
+                if (is_object($images) && get_class($images) === 'SimpleXMLElement') {
+                    // Jeśli to pojedynczy element SimpleXML, sprawdź czy ma dzieci
+                    $images_array = [];
+                    foreach ($images as $image) {
+                        $images_array[] = $image;
                     }
+                    if (empty($images_array)) {
+                        // Jeśli brak dzieci, to znaczy że to pojedynczy element
+                        $images_array = [$images];
+                    }
+                    $images = $images_array;
+                    addLog("🔄 Skonwertowano SimpleXML do tablicy: " . count($images) . " elementów", "info");
+                } elseif (!is_array($images)) {
+                    $images = [$images];
+                    addLog("🔄 Skonwertowano do tablicy: " . count($images) . " elementów", "info");
+                }
 
-                    if (!empty($image_url) && filter_var($image_url, FILTER_VALIDATE_URL)) {
-                        addLog("📥 Pobieram obraz " . ($img_counter + 1) . ": {$image_url}", "info");
-                        $attachment_id = import_product_image($image_url, $product_id, $img_counter === 0);
-                        if ($attachment_id) {
-                            $image_ids[] = $attachment_id;
-                            $stats['images']++;
-                            addLog("✅ Obraz " . ($img_counter + 1) . " dodany (ID: {$attachment_id})", "success");
-                        } else {
-                            addLog("❌ Nie udało się dodać obrazu " . ($img_counter + 1), "error");
+                addLog("📷 Znaleziono " . count($images) . " obrazków w XML", "info");
+                addLog("🔍 DEBUG: Typ images po konwersji: " . gettype($images), "info");
+
+                // Opcjonalnie wyczyść starą galerię przy aktualizacji
+                if ($is_update) {
+                    // Sprawdź czy chcemy zastąpić obrazy (można dodać parametr URL)
+                    $replace_images = isset($_GET['replace_images']) ? (bool) $_GET['replace_images'] : false;
+
+                    if ($replace_images) {
+                        addLog("🧹 Aktualizacja: Czyszczenie starej galerii...", "info");
+                        $clean_result = clean_product_gallery($final_product_id, false); // false = nie usuwaj głównego obrazu
+                        if ($clean_result['removed_count'] > 0) {
+                            addLog("✅ Usunięto " . $clean_result['removed_count'] . " starych obrazów galerii", "success");
                         }
                     } else {
-                        addLog("⚠️ Nieprawidłowy URL obrazu " . ($img_counter + 1) . ": {$image_url}", "warning");
-                    }
-                    $img_counter++;
-                }
-
-                addLog("📊 Znaleziono " . count($image_ids) . " obrazków", "info");
-
-                // Ustaw galerię
-                if (count($image_ids) > 1) {
-                    $featured_id = get_post_thumbnail_id($product_id);
-                    $gallery_ids = array_filter($image_ids, function ($id) use ($featured_id) {
-                        return $id != $featured_id;
-                    });
-
-                    if (!empty($gallery_ids)) {
-                        update_post_meta($product_id, '_product_image_gallery', implode(',', $gallery_ids));
-                        $product = wc_get_product($product_id);
-                        $product->set_gallery_image_ids($gallery_ids);
-                        $product->save();
-                        addLog("🖼️ Ustawiono galerię z " . count($gallery_ids) . " obrazami", "success");
+                        addLog("ℹ️ Aktualizacja: Dodawanie obrazów do istniejącej galerii (użyj &replace_images=1 aby zastąpić)", "info");
                     }
                 }
 
-                addLog("🖼️ Dodano " . count($image_ids) . " obrazów", "success");
+                // Użyj nowej funkcji do importu galerii
+                addLog("🚀 WYWOŁUJĘ import_product_gallery z " . count($images) . " obrazami dla produktu ID: {$final_product_id}", "info");
+                $gallery_result = import_product_gallery($images, $final_product_id);
+                addLog("🏁 ZAKOŃCZONO import_product_gallery, wynik: " . ($gallery_result['success'] ? 'SUKCES' : 'BŁĄD'), "info");
+
+                if ($gallery_result['success']) {
+                    $stats['images'] += $gallery_result['imported_count'];
+                    addLog("🖼️ Galeria produktu: " . $gallery_result['message'], "success");
+
+                    // Pokaż raport galerii dla debugowania
+                    log_product_gallery_report($final_product_id);
+                } else {
+                    addLog("❌ Błąd galerii: " . $gallery_result['message'], "error");
+                }
             } else {
                 addLog("⚠️ Brak sekcji <images> w XML", "warning");
             }
 
             // Oznacz jako importowany
-            update_post_meta($product_id, '_mhi_imported', 'yes');
-            update_post_meta($product_id, '_mhi_supplier', $supplier);
-            update_post_meta($product_id, '_mhi_import_date', current_time('mysql'));
+            update_post_meta($final_product_id, '_mhi_imported', 'yes');
+            update_post_meta($final_product_id, '_mhi_supplier', $supplier);
+            update_post_meta($final_product_id, '_mhi_import_date', current_time('mysql'));
 
             // Statystyki
             if ($is_update) {
                 $stats['updated']++;
-                addLog("✅ Zaktualizowano produkt ID: {$product_id}", "success");
+                addLog("✅ Zaktualizowano produkt ID: {$final_product_id}", "success");
             } else {
                 $stats['created']++;
-                addLog("✅ Utworzono produkt ID: {$product_id}", "success");
+                addLog("✅ Utworzono produkt ID: {$final_product_id}", "success");
             }
 
             // Log o atrybutach
@@ -713,7 +772,7 @@ if (!file_exists($xml_file)) {
         $category_ids = [];
 
         if (strpos($categories_text, '>') !== false) {
-            // Hierarchia kategorii
+            // Hierarchia kategorii - przypisz WSZYSTKIE kategorie z hierarchii
             $parts = array_map('trim', explode('>', $categories_text));
             $parent_id = 0;
 
@@ -726,14 +785,16 @@ if (!file_exists($xml_file)) {
                     $term = wp_insert_term($part, 'product_cat', ['parent' => $parent_id]);
                     if (!is_wp_error($term)) {
                         $parent_id = $term['term_id'];
+                        // Dodaj każdą kategorię do listy (główną i wszystkie podkategorie)
+                        $category_ids[] = $parent_id;
+                        addLog("  ➕ Utworzono kategorię: {$part} (ID: {$parent_id})", "info");
                     }
                 } else {
                     $parent_id = $term->term_id;
+                    // Dodaj każdą kategorię do listy (główną i wszystkie podkategorie)
+                    $category_ids[] = $parent_id;
+                    addLog("  ✓ Znaleziono kategorię: {$part} (ID: {$parent_id})", "info");
                 }
-            }
-
-            if ($parent_id > 0) {
-                $category_ids[] = $parent_id;
             }
         } else {
             // Pojedyncza kategoria
@@ -742,18 +803,285 @@ if (!file_exists($xml_file)) {
                 $term = wp_insert_term($categories_text, 'product_cat');
                 if (!is_wp_error($term)) {
                     $category_ids[] = $term['term_id'];
+                    addLog("  ➕ Utworzono kategorię: {$categories_text} (ID: {$term['term_id']})", "info");
                 }
             } else {
                 $category_ids[] = $term->term_id;
+                addLog("  ✓ Znaleziono kategorię: {$categories_text} (ID: {$term->term_id})", "info");
             }
         }
+
+        // Usuń duplikaty i zwróć unikalne ID kategorii
+        $category_ids = array_unique($category_ids);
+        addLog("📁 Finalne kategorie do przypisania: " . implode(', ', $category_ids), "success");
 
         return $category_ids;
     }
 
+    /**
+     * Czyści starą galerię produktu (opcjonalnie)
+     * Usuwa obrazy które nie są już potrzebne
+     * 
+     * @param int $product_id ID produktu
+     * @param bool $remove_featured Czy usunąć także główny obraz
+     * @return array Informacje o usuniętych obrazach
+     */
+    function clean_product_gallery($product_id, $remove_featured = false)
+    {
+        addLog("🧹 Czyszczenie galerii produktu ID: {$product_id}", "info");
+
+        $removed_count = 0;
+        $errors = [];
+
+        // Pobierz obecne obrazy galerii
+        $gallery_ids = get_post_meta($product_id, '_product_image_gallery', true);
+        if (!empty($gallery_ids)) {
+            $gallery_ids = explode(',', $gallery_ids);
+            $gallery_ids = array_filter($gallery_ids);
+
+            foreach ($gallery_ids as $attachment_id) {
+                if (wp_delete_attachment($attachment_id, true)) {
+                    $removed_count++;
+                    addLog("  🗑️ Usunięto obraz galerii ID: {$attachment_id}", "info");
+                } else {
+                    $errors[] = $attachment_id;
+                    addLog("  ❌ Nie można usunąć obrazu galerii ID: {$attachment_id}", "warning");
+                }
+            }
+
+            // Wyczyść meta galerii
+            delete_post_meta($product_id, '_product_image_gallery');
+        }
+
+        // Usuń główny obraz jeśli wymagane
+        if ($remove_featured) {
+            $featured_id = get_post_thumbnail_id($product_id);
+            if ($featured_id) {
+                if (wp_delete_attachment($featured_id, true)) {
+                    delete_post_thumbnail($product_id);
+                    $removed_count++;
+                    addLog("  🗑️ Usunięto główny obraz ID: {$featured_id}", "info");
+                } else {
+                    $errors[] = $featured_id;
+                    addLog("  ❌ Nie można usunąć głównego obrazu ID: {$featured_id}", "warning");
+                }
+            }
+        }
+
+        return [
+            'removed_count' => $removed_count,
+            'errors' => $errors
+        ];
+    }
+
+    /**
+     * Importuje galerię obrazów dla produktu
+     * Pierwszy obraz staje się głównym zdjęciem produktu, reszta idzie do galerii
+     * 
+     * @param array $images Tablica obrazów z XML
+     * @param int $product_id ID produktu
+     * @return array Wynik operacji z informacjami o sukcesie
+     */
+    function import_product_gallery($images, $product_id)
+    {
+        addLog("🎨 ROZPOCZĘCIE import_product_gallery dla produktu ID: {$product_id}", "info");
+        addLog("🔍 DEBUG: Typ parametru images: " . gettype($images), "info");
+        addLog("🔍 DEBUG: Liczba images: " . (is_array($images) ? count($images) : (is_object($images) ? 'obiekt' : 'nie-tablica')), "info");
+
+        // Sprawdź czy produkt istnieje
+        $product = wc_get_product($product_id);
+        if (!$product) {
+            addLog("❌ Nie można załadować produktu ID: {$product_id}", "error");
+            return [
+                'success' => false,
+                'message' => "Produkt nie istnieje",
+                'imported_count' => 0,
+                'failed_count' => 0,
+                'skipped_count' => 0
+            ];
+        }
+
+        $image_ids = [];
+        $imported_count = 0;
+        $failed_count = 0;
+        $skipped_count = 0;
+
+        foreach ($images as $index => $image) {
+            $image_url = '';
+            $img_number = $index + 1;
+
+            addLog("🔍 DEBUG: Przetwarzam obraz {$img_number}, typ: " . gettype($image), "info");
+            if (is_object($image)) {
+                addLog("🔍 DEBUG: Klasa obiektu: " . get_class($image), "info");
+            }
+
+            // Sprawdź różne formaty XML dla obrazów
+            $attributes = $image->attributes();
+            addLog("🔍 DEBUG: Atrybuty obrazu {$img_number}: " . (is_object($attributes) ? 'obiekt' : 'brak'), "info");
+
+            if (isset($attributes['src'])) {
+                // Format: <image src="URL"/>
+                $image_url = trim((string) $attributes['src']);
+                addLog("  📸 Obraz {$img_number} - Format src attr: {$image_url}", "info");
+            } elseif (isset($image->src)) {
+                // Format Macma: <image><src>URL</src></image>
+                $image_url = trim((string) $image->src);
+                addLog("  📸 Obraz {$img_number} - Format src element: {$image_url}", "info");
+            } else {
+                // Format standardowy: <image>URL</image>
+                $image_url = trim((string) $image);
+                addLog("  📸 Obraz {$img_number} - Format zawartość: {$image_url}", "info");
+            }
+
+            // Walidacja URL
+            if (empty($image_url)) {
+                addLog("  ⚠️ Obraz {$img_number}: Pusty URL - pomijam", "warning");
+                $skipped_count++;
+                continue;
+            }
+
+            if (!filter_var($image_url, FILTER_VALIDATE_URL)) {
+                addLog("  ⚠️ Obraz {$img_number}: Nieprawidłowy URL ({$image_url}) - pomijam", "warning");
+                $skipped_count++;
+                continue;
+            }
+
+            // Określ czy to główny obraz (pierwszy)
+            $is_featured = ($index === 0);
+            $image_type = $is_featured ? "GŁÓWNY" : "GALERIA";
+
+            addLog("  📥 Obraz {$img_number} ({$image_type}): Pobieram {$image_url}", "info");
+
+            // Importuj obraz
+            $attachment_id = import_product_image($image_url, $product_id, $is_featured);
+
+            if ($attachment_id) {
+                $image_ids[] = $attachment_id;
+                $imported_count++;
+                addLog("  ✅ Obraz {$img_number} ({$image_type}) dodany - ID: {$attachment_id}", "success");
+            } else {
+                $failed_count++;
+                addLog("  ❌ Obraz {$img_number} ({$image_type}): Błąd importu", "error");
+            }
+        }
+
+        // Podsumowanie importu obrazów
+        $total_processed = $imported_count + $failed_count + $skipped_count;
+        addLog("📊 Podsumowanie obrazów: {$total_processed} przetworzonych, {$imported_count} zaimportowanych, {$failed_count} błędów, {$skipped_count} pominiętych", "info");
+
+        // Konfiguracja galerii WooCommerce
+        if ($imported_count > 0) {
+            // Pobierz aktualny główny obraz
+            $featured_id = get_post_thumbnail_id($product_id);
+            addLog("🌟 Główny obraz produktu: ID {$featured_id}", "info");
+
+            // Przygotuj galerię (wszystkie zaimportowane obrazy oprócz głównego)
+            $new_gallery_ids = array_filter($image_ids, function ($id) use ($featured_id) {
+                return $id != $featured_id;
+            });
+
+            addLog("🖼️ Nowe obrazy do galerii: " . count($new_gallery_ids) . " (" . implode(',', $new_gallery_ids) . ")", "info");
+
+            // Sprawdź czy istnieją już obrazy w galerii (przy aktualizacji)
+            $existing_gallery = get_post_meta($product_id, '_product_image_gallery', true);
+            $existing_gallery_ids = [];
+
+            if (!empty($existing_gallery)) {
+                $existing_gallery_ids = explode(',', $existing_gallery);
+                $existing_gallery_ids = array_filter($existing_gallery_ids);
+                addLog("📋 Istniejąca galeria: " . count($existing_gallery_ids) . " obrazów (" . implode(',', $existing_gallery_ids) . ")", "info");
+            }
+
+            // Określ finalną galerię
+            $final_gallery_ids = [];
+
+            if (!empty($existing_gallery_ids) && !empty($new_gallery_ids)) {
+                // Połącz istniejące z nowymi, usuń duplikaty
+                $final_gallery_ids = array_unique(array_merge($existing_gallery_ids, $new_gallery_ids));
+                addLog("🔗 Łączenie galerii: " . count($existing_gallery_ids) . " istniejących + " . count($new_gallery_ids) . " nowych = " . count($final_gallery_ids) . " łącznie", "info");
+            } elseif (!empty($new_gallery_ids)) {
+                // Tylko nowe obrazy
+                $final_gallery_ids = $new_gallery_ids;
+                addLog("🆕 Nowa galeria: " . count($final_gallery_ids) . " obrazów", "info");
+            } elseif (!empty($existing_gallery_ids)) {
+                // Tylko istniejące obrazy (nie powinno się zdarzyć w tym kontekście)
+                $final_gallery_ids = $existing_gallery_ids;
+                addLog("📋 Zachowanie istniejącej galerii: " . count($final_gallery_ids) . " obrazów", "info");
+            }
+
+            // Ustaw galerię w WooCommerce
+            if (!empty($final_gallery_ids)) {
+                // Ustaw galerię w meta
+                update_post_meta($product_id, '_product_image_gallery', implode(',', $final_gallery_ids));
+                addLog("💾 Meta galerii zapisana: " . implode(',', $final_gallery_ids), "info");
+
+                // Ustaw galerię przez WooCommerce API
+                $product_fresh = wc_get_product($product_id); // Pobierz świeży obiekt produktu
+                if ($product_fresh) {
+                    // Wyczyść cache produktu
+                    wp_cache_delete($product_id, 'posts');
+                    wp_cache_delete($product_id, 'post_meta');
+
+                    $product_fresh->set_gallery_image_ids($final_gallery_ids);
+                    $save_result = $product_fresh->save();
+
+                    if ($save_result) {
+                        addLog("🖼️ Galeria WooCommerce: Ustawiono " . count($final_gallery_ids) . " obrazów w galerii", "success");
+
+                        // Weryfikacja - sprawdź czy galeria została ustawiona
+                        force_refresh_product_gallery($product_id);
+                        $verification_product = wc_get_product($product_id);
+                        $verification_gallery = $verification_product->get_gallery_image_ids();
+                        addLog("✅ Weryfikacja galerii: " . count($verification_gallery) . " obrazów (" . implode(',', $verification_gallery) . ")", "info");
+
+                        // Dodatkowa weryfikacja przez meta
+                        $meta_gallery = get_post_meta($product_id, '_product_image_gallery', true);
+                        addLog("🔍 Meta galerii: " . ($meta_gallery ?: 'brak'), "info");
+                    } else {
+                        addLog("❌ Nie udało się zapisać galerii produktu", "error");
+                    }
+                } else {
+                    addLog("⚠️ Nie można załadować produktu WooCommerce ID: {$product_id}", "warning");
+                }
+
+                $message = "Główny obraz + galeria z " . count($final_gallery_ids) . " obrazami (zaimportowano: {$imported_count})";
+            } else {
+                $message = "Tylko główny obraz (zaimportowano: {$imported_count})";
+                addLog("ℹ️ Brak obrazów do galerii - tylko główny obraz", "info");
+            }
+
+            // Dodatkowe meta dla śledzenia
+            update_post_meta($product_id, '_mhi_gallery_count', count($final_gallery_ids ?? []));
+            update_post_meta($product_id, '_mhi_total_images', $imported_count);
+            update_post_meta($product_id, '_mhi_gallery_updated', current_time('mysql'));
+
+            return [
+                'success' => true,
+                'message' => $message,
+                'imported_count' => $imported_count,
+                'failed_count' => $failed_count,
+                'skipped_count' => $skipped_count,
+                'featured_id' => $featured_id,
+                'gallery_ids' => $final_gallery_ids ?? [],
+                'total_images' => count($image_ids)
+            ];
+        } else {
+            return [
+                'success' => false,
+                'message' => "Nie udało się zaimportować żadnego obrazu ({$failed_count} błędów, {$skipped_count} pominiętych)",
+                'imported_count' => 0,
+                'failed_count' => $failed_count,
+                'skipped_count' => $skipped_count
+            ];
+        }
+    }
+
     function import_product_image($image_url, $product_id, $is_featured = false)
     {
+        addLog("🚀 ROZPOCZĘCIE import_product_image - URL: " . $image_url, "info");
+
         // Sprawdź czy obraz już istnieje
+        addLog("🔍 Sprawdzanie czy obraz już istnieje...", "info");
         $existing = get_posts([
             'post_type' => 'attachment',
             'meta_query' => [
@@ -765,6 +1093,8 @@ if (!file_exists($xml_file)) {
             'posts_per_page' => 1
         ]);
 
+        addLog("✅ Sprawdzenie zakończone. Znaleziono: " . count($existing) . " istniejących obrazów", "info");
+
         if ($existing) {
             $attach_id = $existing[0]->ID;
             if ($is_featured) {
@@ -774,16 +1104,76 @@ if (!file_exists($xml_file)) {
             return $attach_id;
         }
 
-        $upload_dir = wp_upload_dir();
+        // Generuj losową datę z ostatnich 18 miesięcy dla lepszej organizacji folderów
+        $months_back = rand(1, 18); // losowo 1-18 miesięcy wstecz
+        $random_timestamp = strtotime("-{$months_back} months");
 
-        // Pobierz obraz
+        // Dodatkowo losuj dzień w miesiącu
+        $year = (int) date('Y', $random_timestamp);
+        $month = (int) date('m', $random_timestamp);
+        $day = rand(1, 28); // maksymalnie 28, żeby być bezpiecznym dla lutego
+        $hour = rand(8, 18); // godziny robocze
+        $minute = rand(0, 59);
+        $second = rand(0, 59);
+
+        $final_timestamp = mktime($hour, $minute, $second, $month, $day, $year);
+
+        addLog("📅 Używam daty publikacji: " . date('Y-m-d H:i:s', $final_timestamp) . " (folder: " . date('Y/m', $final_timestamp) . ")", "info");
+
+        // Użyj konkretnej daty dla wp_upload_dir - WordPress automatycznie utworzy folder roczno-miesięczny
+        $upload_dir = wp_upload_dir(date('Y/m', $final_timestamp));
+
+        // Sprawdź czy wp_upload_dir zwróciło prawidłowe dane
+        if (isset($upload_dir['error']) && $upload_dir['error']) {
+            addLog("❌ Błąd wp_upload_dir: " . $upload_dir['error'], "error");
+            return false;
+        }
+
+        addLog("📂 Upload dir - path: " . $upload_dir['path'] . ", url: " . $upload_dir['url'], "info");
+
+        // Sprawdź czy folder istnieje i utwórz go jeśli nie
+        if (!file_exists($upload_dir['path'])) {
+            addLog("📁 Tworzenie folderu: " . $upload_dir['path'], "info");
+            $created = wp_mkdir_p($upload_dir['path']);
+            if (!$created) {
+                addLog("❌ Nie udało się utworzyć folderu: " . $upload_dir['path'], "error");
+                addLog("🔍 Sprawdzanie praw: " . (is_writable(dirname($upload_dir['path'])) ? 'OK' : 'BRAK'), "error");
+                return false;
+            }
+            addLog("✅ Folder utworzony pomyślnie: " . $upload_dir['path'], "success");
+        } else {
+            addLog("✅ Folder już istnieje: " . $upload_dir['path'], "info");
+        }
+
+        // Sprawdź prawa zapisu
+        if (!is_writable($upload_dir['path'])) {
+            addLog("❌ Brak praw zapisu do folderu: " . $upload_dir['path'], "error");
+            return false;
+        }
+
+        // Pobierz obraz z lepszą obsługą błędów
+        addLog("🌐 Rozpoczynam pobieranie obrazu: " . $image_url, "info");
+
         $response = wp_remote_get($image_url, [
-            'timeout' => 30,
-            'sslverify' => false
+            'timeout' => 60,
+            'sslverify' => false,
+            'user-agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'headers' => [
+                'Accept' => 'image/*,*/*;q=0.8',
+                'Accept-Encoding' => 'gzip, deflate'
+            ]
         ]);
+
+        addLog("📡 Odpowiedź HTTP otrzymana", "info");
 
         if (is_wp_error($response)) {
             addLog("❌ Błąd pobierania obrazu: " . $response->get_error_message(), "error");
+            return false;
+        }
+
+        $response_code = wp_remote_retrieve_response_code($response);
+        if ($response_code !== 200) {
+            addLog("❌ HTTP błąd {$response_code} dla obrazu: {$image_url}", "error");
             return false;
         }
 
@@ -793,51 +1183,374 @@ if (!file_exists($xml_file)) {
             return false;
         }
 
-        // Zapisz plik
-        $filename = basename($image_url);
-        $filename = sanitize_file_name($filename);
-
-        // Dodaj timestamp żeby uniknąć duplikatów
-        $filename = time() . '_' . $filename;
-
-        $file_path = $upload_dir['path'] . '/' . $filename;
-
-        if (file_put_contents($file_path, $image_data) === false) {
-            addLog("❌ Nie udało się zapisać pliku: {$file_path}", "error");
+        // Sprawdź czy dane to rzeczywiście obraz
+        $image_info = @getimagesizefromstring($image_data);
+        if (!$image_info) {
+            addLog("❌ Nieprawidłowe dane obrazu z URL: {$image_url}", "error");
             return false;
         }
 
-        // Dodaj do biblioteki mediów
-        $filetype = wp_check_filetype($filename, null);
+        // Przygotuj nazwę pliku
+        $original_filename = basename($image_url);
+        $original_filename = sanitize_file_name($original_filename);
+
+        // Usuń parametry URL z nazwy pliku
+        $original_filename = preg_replace('/\?.*$/', '', $original_filename);
+
+        // Dodaj timestamp żeby uniknąć duplikatów
+        $filename_base = pathinfo($original_filename, PATHINFO_FILENAME);
+        $original_extension = pathinfo($original_filename, PATHINFO_EXTENSION);
+
+        // Zapisz tymczasowo oryginalny plik
+        $temp_filename = time() . '_' . $filename_base . '.' . $original_extension;
+        $temp_file_path = $upload_dir['path'] . '/' . $temp_filename;
+
+        addLog("💾 Zapisywanie pliku do: " . $temp_file_path, "info");
+        addLog("📊 Rozmiar danych obrazu: " . size_format(strlen($image_data)), "info");
+
+        $bytes_written = file_put_contents($temp_file_path, $image_data);
+        if ($bytes_written === false) {
+            addLog("❌ Nie udało się zapisać tymczasowego pliku: {$temp_file_path}", "error");
+            return false;
+        }
+
+        addLog("✅ Zapisano " . size_format($bytes_written) . " do pliku: " . basename($temp_file_path), "success");
+
+        // Konwertuj do WebP jeśli możliwe
+        $final_filename = $filename_base . '_' . time() . '.webp';
+        $final_file_path = $upload_dir['path'] . '/' . $final_filename;
+
+        $webp_converted = false;
+
+        // Sprawdź czy GD obsługuje WebP
+        if (function_exists('imagewebp') && function_exists('imagecreatefromstring')) {
+            $source_image = @imagecreatefromstring($image_data);
+
+            if ($source_image !== false) {
+                // Optymalizuj obraz - ustaw maksymalną szerokość
+                $max_width = 1200;
+                $original_width = imagesx($source_image);
+                $original_height = imagesy($source_image);
+
+                if ($original_width > $max_width) {
+                    $ratio = $max_width / $original_width;
+                    $new_width = $max_width;
+                    $new_height = intval($original_height * $ratio);
+
+                    $resized_image = imagecreatetruecolor($new_width, $new_height);
+
+                    // Zachowaj przezroczystość dla PNG
+                    if ($image_info[2] == IMAGETYPE_PNG) {
+                        imagealphablending($resized_image, false);
+                        imagesavealpha($resized_image, true);
+                        $transparent = imagecolorallocatealpha($resized_image, 255, 255, 255, 127);
+                        imagefill($resized_image, 0, 0, $transparent);
+                    }
+
+                    imagecopyresampled($resized_image, $source_image, 0, 0, 0, 0, $new_width, $new_height, $original_width, $original_height);
+                    imagedestroy($source_image);
+                    $source_image = $resized_image;
+
+                    addLog("🖼️ Zmieniono rozmiar obrazu do {$new_width}x{$new_height}px", "info");
+                }
+
+                // Konwertuj do WebP
+                if (@imagewebp($source_image, $final_file_path, 85)) {
+                    $webp_converted = true;
+                    addLog("✅ Skonwertowano do WebP: {$final_filename}", "success");
+                } else {
+                    addLog("⚠️ Nie udało się skonwertować do WebP, używam oryginalnego formatu", "warning");
+                }
+
+                imagedestroy($source_image);
+            }
+        } else {
+            addLog("⚠️ GD nie obsługuje WebP lub brak funkcji, używam oryginalnego formatu", "warning");
+        }
+
+        // Jeśli konwersja WebP się nie udała, użyj oryginalnego pliku
+        if (!$webp_converted) {
+            $final_filename = $temp_filename;
+            $final_file_path = $temp_file_path;
+        } else {
+            // Usuń tymczasowy plik oryginalny
+            @unlink($temp_file_path);
+        }
+
+        // Dodaj do biblioteki mediów z odpowiednią datą publikacji
+        $filetype = wp_check_filetype($final_filename, null);
         $attachment = [
-            'guid' => $upload_dir['url'] . '/' . $filename,
+            'guid' => $upload_dir['url'] . '/' . $final_filename,
             'post_mime_type' => $filetype['type'],
-            'post_title' => preg_replace('/\.[^.]+$/', '', $filename),
+            'post_title' => preg_replace('/\.[^.]+$/', '', $filename_base),
             'post_content' => '',
-            'post_status' => 'inherit'
+            'post_status' => 'inherit',
+            'post_date' => date('Y-m-d H:i:s', $final_timestamp),
+            'post_date_gmt' => gmdate('Y-m-d H:i:s', $final_timestamp),
+            'post_modified' => date('Y-m-d H:i:s', $final_timestamp),
+            'post_modified_gmt' => gmdate('Y-m-d H:i:s', $final_timestamp)
         ];
 
-        $attach_id = wp_insert_attachment($attachment, $file_path, $product_id);
+        $attach_id = wp_insert_attachment($attachment, $final_file_path, $product_id);
 
         if (!$attach_id) {
             addLog("❌ Nie udało się utworzyć załącznika w WordPress", "error");
+            @unlink($final_file_path);
             return false;
         }
 
-        // Zapisz URL źródłowy
+        // Zapisz URL źródłowy i informacje o konwersji
         update_post_meta($attach_id, '_mhi_source_url', $image_url);
+        update_post_meta($attach_id, '_mhi_webp_converted', $webp_converted ? 'yes' : 'no');
+        update_post_meta($attach_id, '_mhi_original_format', $original_extension);
+        update_post_meta($attach_id, '_mhi_random_date', date('Y-m-d H:i:s', $final_timestamp));
+        update_post_meta($attach_id, '_mhi_folder_path', date('Y/m', $final_timestamp));
 
         require_once(ABSPATH . 'wp-admin/includes/image.php');
-        $attach_data = wp_generate_attachment_metadata($attach_id, $file_path);
+        $attach_data = wp_generate_attachment_metadata($attach_id, $final_file_path);
         wp_update_attachment_metadata($attach_id, $attach_data);
 
         // Ustaw jako główny obraz
         if ($is_featured) {
-            set_post_thumbnail($product_id, $attach_id);
-            addLog("🌟 Ustawiono jako główny obraz produktu", "success");
+            $thumbnail_result = set_post_thumbnail($product_id, $attach_id);
+            if ($thumbnail_result) {
+                addLog("🌟 Ustawiono jako główny obraz produktu (ID: {$attach_id})", "success");
+
+                // Weryfikacja - sprawdź czy główny obraz został ustawiony
+                $verification_featured = get_post_thumbnail_id($product_id);
+                addLog("✅ Weryfikacja głównego obrazu: ID {$verification_featured}", "info");
+            } else {
+                addLog("❌ Nie udało się ustawić głównego obrazu produktu", "error");
+            }
         }
 
+        $format_info = $webp_converted ? " (WebP)" : " ({$original_extension})";
+        $folder_info = date('Y/m', $final_timestamp);
+        addLog("📸 Dodano obraz: {$final_filename}{$format_info} → {$folder_info}/", "success");
+
         return $attach_id;
+    }
+
+    /**
+     * Wymusza odświeżenie galerii produktu
+     * Czyści cache i przeładowuje dane galerii
+     * 
+     * @param int $product_id ID produktu
+     * @return bool Sukces operacji
+     */
+    function force_refresh_product_gallery($product_id)
+    {
+        // Wyczyść wszystkie cache związane z produktem
+        wp_cache_delete($product_id, 'posts');
+        wp_cache_delete($product_id, 'post_meta');
+        clean_post_cache($product_id);
+
+        // Wyczyść cache WooCommerce
+        if (function_exists('wc_delete_product_transients')) {
+            wc_delete_product_transients($product_id);
+        }
+
+        // Przeładuj produkt
+        $product = wc_get_product($product_id);
+        if ($product) {
+            // Wymuś ponowne załadowanie danych
+            $product->read_meta_data(true);
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Sprawdza i raportuje stan galerii produktu
+     * Pomocna funkcja do debugowania
+     * 
+     * @param int $product_id ID produktu
+     * @return array Informacje o galerii
+     */
+    function get_product_gallery_info($product_id)
+    {
+        $info = [
+            'product_id' => $product_id,
+            'featured_image' => null,
+            'gallery_images' => [],
+            'total_images' => 0,
+            'gallery_meta' => '',
+            'wc_gallery_ids' => []
+        ];
+
+        // Główny obraz
+        $featured_id = get_post_thumbnail_id($product_id);
+        if ($featured_id) {
+            $info['featured_image'] = [
+                'id' => $featured_id,
+                'url' => wp_get_attachment_url($featured_id),
+                'title' => get_the_title($featured_id)
+            ];
+        }
+
+        // Galeria z meta
+        $gallery_meta = get_post_meta($product_id, '_product_image_gallery', true);
+        $info['gallery_meta'] = $gallery_meta;
+
+        if (!empty($gallery_meta)) {
+            $gallery_ids = explode(',', $gallery_meta);
+            $gallery_ids = array_filter($gallery_ids);
+
+            foreach ($gallery_ids as $id) {
+                $info['gallery_images'][] = [
+                    'id' => $id,
+                    'url' => wp_get_attachment_url($id),
+                    'title' => get_the_title($id)
+                ];
+            }
+        }
+
+        // Galeria z WooCommerce
+        $product = wc_get_product($product_id);
+        if ($product) {
+            $info['wc_gallery_ids'] = $product->get_gallery_image_ids();
+        }
+
+        $info['total_images'] = count($info['gallery_images']) + ($info['featured_image'] ? 1 : 0);
+
+        return $info;
+    }
+
+    /**
+     * Wyświetla raport galerii produktu w logach
+     * 
+     * @param int $product_id ID produktu
+     */
+    function log_product_gallery_report($product_id)
+    {
+        // Wymuś odświeżenie przed raportem
+        force_refresh_product_gallery($product_id);
+
+        $info = get_product_gallery_info($product_id);
+
+        addLog("📊 RAPORT GALERII dla produktu ID: {$product_id}", "info");
+
+        if ($info['featured_image']) {
+            addLog("  🌟 Główny obraz: ID {$info['featured_image']['id']} - {$info['featured_image']['title']}", "info");
+        } else {
+            addLog("  ⚠️ Brak głównego obrazu", "warning");
+        }
+
+        if (!empty($info['gallery_images'])) {
+            addLog("  🖼️ Galeria: " . count($info['gallery_images']) . " obrazów", "info");
+            foreach ($info['gallery_images'] as $index => $img) {
+                addLog("    " . ($index + 1) . ". ID {$img['id']} - {$img['title']}", "info");
+            }
+        } else {
+            addLog("  📷 Brak obrazów w galerii", "info");
+        }
+
+        addLog("  📈 Łącznie obrazów: {$info['total_images']}", "info");
+        addLog("  🔧 Meta galerii: " . ($info['gallery_meta'] ?: 'brak'), "info");
+        addLog("  🛒 WC galeria IDs: " . (empty($info['wc_gallery_ids']) ? 'brak' : implode(',', $info['wc_gallery_ids'])), "info");
+    }
+
+    // TESTOWANIE GALERII - dodaj ?test_gallery=ID_PRODUKTU do URL
+    if (isset($_GET['test_gallery']) && is_numeric($_GET['test_gallery'])) {
+        $test_product_id = (int) $_GET['test_gallery'];
+        echo "<div style='background: #f0f8ff; padding: 20px; margin: 20px 0; border-radius: 10px;'>";
+        echo "<h3>🧪 TEST GALERII dla produktu ID: {$test_product_id}</h3>";
+
+        // Wymuś odświeżenie przed testem
+        force_refresh_product_gallery($test_product_id);
+
+        $info = get_product_gallery_info($test_product_id);
+
+        echo "<p><strong>Główny obraz:</strong> ";
+        if ($info['featured_image']) {
+            echo "ID {$info['featured_image']['id']} - {$info['featured_image']['title']}<br>";
+            echo "<img src='{$info['featured_image']['url']}' style='max-width: 150px; margin: 5px;'>";
+        } else {
+            echo "Brak";
+        }
+        echo "</p>";
+
+        echo "<p><strong>Galeria ({$info['total_images']} obrazów):</strong></p>";
+        if (!empty($info['gallery_images'])) {
+            echo "<div style='display: flex; flex-wrap: wrap; gap: 10px;'>";
+            foreach ($info['gallery_images'] as $img) {
+                echo "<div style='text-align: center;'>";
+                echo "<img src='{$img['url']}' style='max-width: 100px; height: 100px; object-fit: cover;'><br>";
+                echo "<small>ID: {$img['id']}</small>";
+                echo "</div>";
+            }
+            echo "</div>";
+        } else {
+            echo "<p>Brak obrazów w galerii</p>";
+        }
+
+        echo "<p><strong>Meta galerii:</strong> " . ($info['gallery_meta'] ?: 'brak') . "</p>";
+        echo "<p><strong>WC galeria IDs:</strong> " . (empty($info['wc_gallery_ids']) ? 'brak' : implode(',', $info['wc_gallery_ids'])) . "</p>";
+
+        // Dodatkowe debugowanie
+        echo "<h4>🔧 Debugowanie:</h4>";
+        $product = wc_get_product($test_product_id);
+        if ($product) {
+            echo "<p><strong>Typ produktu:</strong> " . $product->get_type() . "</p>";
+            echo "<p><strong>Status:</strong> " . $product->get_status() . "</p>";
+            $gallery_ids = $product->get_gallery_image_ids();
+            echo "<p><strong>WC get_gallery_image_ids():</strong> " . (empty($gallery_ids) ? 'brak' : implode(',', $gallery_ids)) . "</p>";
+        }
+
+        echo "</div>";
+
+        exit; // Zatrzymaj dalsze wykonywanie
+    }
+
+    // NAPRAW GALERIĘ - dodaj ?fix_gallery=ID_PRODUKTU do URL
+    if (isset($_GET['fix_gallery']) && is_numeric($_GET['fix_gallery'])) {
+        $fix_product_id = (int) $_GET['fix_gallery'];
+        echo "<div style='background: #fff3cd; padding: 20px; margin: 20px 0; border-radius: 10px;'>";
+        echo "<h3>🔧 NAPRAWA GALERII dla produktu ID: {$fix_product_id}</h3>";
+
+        // Pobierz wszystkie załączniki produktu
+        $attachments = get_posts([
+            'post_type' => 'attachment',
+            'post_parent' => $fix_product_id,
+            'posts_per_page' => -1,
+            'post_status' => 'inherit'
+        ]);
+
+        if (!empty($attachments)) {
+            echo "<p>Znaleziono " . count($attachments) . " załączników:</p>";
+
+            $featured_id = get_post_thumbnail_id($fix_product_id);
+            $gallery_ids = [];
+
+            foreach ($attachments as $attachment) {
+                $is_featured = ($attachment->ID == $featured_id);
+                echo "<p>- ID {$attachment->ID}: {$attachment->post_title} " . ($is_featured ? "(GŁÓWNY)" : "") . "</p>";
+
+                if (!$is_featured) {
+                    $gallery_ids[] = $attachment->ID;
+                }
+            }
+
+            if (!empty($gallery_ids)) {
+                // Ustaw galerię
+                update_post_meta($fix_product_id, '_product_image_gallery', implode(',', $gallery_ids));
+
+                $product = wc_get_product($fix_product_id);
+                if ($product) {
+                    $product->set_gallery_image_ids($gallery_ids);
+                    $product->save();
+                    echo "<p style='color: green;'>✅ Naprawiono galerię: " . count($gallery_ids) . " obrazów</p>";
+                }
+            } else {
+                echo "<p>Brak obrazów do galerii (tylko główny obraz)</p>";
+            }
+        } else {
+            echo "<p>Brak załączników dla tego produktu</p>";
+        }
+
+        echo "</div>";
+        exit;
     }
 
     ?>
