@@ -495,6 +495,7 @@ if (!file_exists($xml_file)) {
             $attributes_to_assign = []; // Nowa tablica do przechowania atrybutów
     
             // ATRYBUTY z sekcji <attributes>
+            // ✅ NAPRAWIONO: Używamy nazw atrybutów zamiast ID dla poprawnego wyświetlania
             if (isset($product_xml->attributes) && isset($product_xml->attributes->attribute)) {
                 addLog("🏷️ Przetwarzam atrybuty produktu...", "info");
 
@@ -538,41 +539,90 @@ if (!file_exists($xml_file)) {
                         ));
 
                         if (!is_wp_error($attribute_id)) {
-                            addLog("✅ Utworzono atrybut globalny: {$attr_name}", "success");
+                            addLog("✅ Utworzono atrybut globalny: {$attr_name} (ID: {$attribute_id})", "success");
+                            // Odśwież taksonomie po utworzeniu nowego atrybutu
+                            delete_transient('wc_attribute_taxonomies');
+                            WC_Cache_Helper::get_transient_version('shipping', true);
+
+                            // Wymuś rejestrację taksonomii
+                            if (function_exists('wc_create_attribute_taxonomies')) {
+                                wc_create_attribute_taxonomies();
+                            }
+
+                            // Sprawdź ponownie czy taksonomia została zarejestrowana
+                            if (!taxonomy_exists($taxonomy)) {
+                                addLog("⚠️ Próbuję ponownie zarejestrować taksonomię: {$taxonomy}", "warning");
+                                // Ręczna rejestracja taksonomii
+                                register_taxonomy($taxonomy, 'product', [
+                                    'hierarchical' => false,
+                                    'show_ui' => false,
+                                    'query_var' => true,
+                                    'rewrite' => false,
+                                ]);
+                            }
                         } else {
                             addLog("❌ Błąd tworzenia atrybutu: {$attr_name} - " . $attribute_id->get_error_message(), "error");
                             continue;
                         }
+                    } else {
+                        addLog("ℹ️ Atrybut globalny już istnieje: {$attr_name} (ID: {$attribute_id})", "info");
                     }
 
                     // Sprawdź czy taksonomia istnieje
                     if (!taxonomy_exists($taxonomy)) {
-                        addLog("⚠️ Taksonomia {$taxonomy} nie istnieje - pomijam", "warning");
-                        continue;
+                        addLog("⚠️ Taksonomia {$taxonomy} nie istnieje - próbuję utworzyć ręcznie", "warning");
+
+                        // Ręczna rejestracja taksonomii jako backup
+                        register_taxonomy($taxonomy, 'product', [
+                            'hierarchical' => false,
+                            'show_ui' => false,
+                            'query_var' => true,
+                            'rewrite' => false,
+                            'public' => false,
+                        ]);
+
+                        // Sprawdź ponownie
+                        if (!taxonomy_exists($taxonomy)) {
+                            addLog("❌ Nie udało się utworzyć taksonomii {$taxonomy} - pomijam atrybut", "error");
+                            continue;
+                        } else {
+                            addLog("✅ Ręcznie utworzono taksonomię: {$taxonomy}", "success");
+                        }
+                    } else {
+                        addLog("✅ Taksonomia {$taxonomy} istnieje", "info");
                     }
 
                     // Utworz terminy dla wartości atrybutu
                     $term_ids = array();
+                    addLog("🔧 Tworzenie terminów dla atrybutu {$attr_name} w taksonomii {$taxonomy}", "info");
+
                     foreach ($values as $value) {
+                        addLog("  🔍 Sprawdzanie terminu: '{$value}' w taksonomii: {$taxonomy}", "info");
+
                         $term = get_term_by('name', $value, $taxonomy);
                         if (!$term) {
+                            addLog("  ➕ Tworzenie nowego terminu: {$value}", "info");
                             $term = wp_insert_term($value, $taxonomy);
                             if (!is_wp_error($term)) {
                                 $term_ids[] = $term['term_id'];
-                                addLog("  ➕ Utworzono wartość: {$value}", "info");
+                                addLog("  ✅ Utworzono wartość: {$value} (ID: {$term['term_id']})", "success");
                             } else {
                                 addLog("  ❌ Błąd tworzenia wartości: {$value} - " . $term->get_error_message(), "error");
+                                addLog("  🔍 DEBUG: Taksonomia istnieje? " . (taxonomy_exists($taxonomy) ? 'TAK' : 'NIE'), "error");
                             }
                         } else {
                             $term_ids[] = $term->term_id;
-                            addLog("  ✓ Wartość istnieje: {$value}", "info");
+                            addLog("  ✓ Wartość istnieje: {$value} (ID: {$term->term_id})", "info");
                         }
                     }
+
+                    addLog("📊 Zebrano " . count($term_ids) . " terminów dla atrybutu {$attr_name}: " . implode(',', $term_ids), "info");
 
                     // Utwórz atrybut WooCommerce i zachowaj informacje o terminach
                     if (!empty($term_ids)) {
                         $wc_attribute = new WC_Product_Attribute();
-                        $wc_attribute->set_name($taxonomy);
+                        $wc_attribute->set_id($attribute_id); // Ustaw ID atrybutu globalnego
+                        $wc_attribute->set_name($taxonomy); // Dla atrybutów globalnych używaj nazwy taksonomii
                         $wc_attribute->set_options($term_ids);
                         $wc_attribute->set_visible(true);
                         $wc_attribute->set_variation(false);
@@ -586,7 +636,7 @@ if (!file_exists($xml_file)) {
                         ];
 
                         $attributes_processed++;
-                        addLog("  ✅ Przygotowano atrybut {$attr_name} z " . count($term_ids) . " wartościami", "success");
+                        addLog("  ✅ Przygotowano atrybut globalny: {$attr_name} (ID: {$attribute_id}, taksonomia: {$taxonomy}) z " . count($term_ids) . " wartościami", "success");
                     }
                 }
 
@@ -601,8 +651,21 @@ if (!file_exists($xml_file)) {
 
             // Ustaw wszystkie atrybuty na produkcie
             if (!empty($wc_attributes)) {
+                addLog("🔧 Ustawianie " . count($wc_attributes) . " atrybutów na produkcie", "info");
+
+                // Debug - pokaż szczegóły atrybutów
+                foreach ($wc_attributes as $index => $wc_attr) {
+                    addLog("  📋 Atrybut " . ($index + 1) . ": ID=" . $wc_attr->get_id() . ", Nazwa=" . $wc_attr->get_name() . ", Opcje=" . implode(',', $wc_attr->get_options()), "info");
+                }
+
                 $product->set_attributes($wc_attributes);
                 addLog("🏷️ Ustawiono " . count($wc_attributes) . " atrybutów na produkcie", "success");
+
+                // Weryfikacja - sprawdź czy atrybuty zostały ustawione
+                $set_attributes = $product->get_attributes();
+                addLog("✅ Weryfikacja: Produkt ma " . count($set_attributes) . " atrybutów", "info");
+            } else {
+                addLog("⚠️ Brak atrybutów WooCommerce do ustawienia", "warning");
             }
 
             // ZAPISZ PRODUKT żeby uzyskać ID
@@ -625,15 +688,54 @@ if (!file_exists($xml_file)) {
             // PRZYPISZ TERMINY ATRYBUTÓW - to jest kluczowe dla poprawnego wyświetlania!
             if (!empty($attributes_to_assign)) {
                 addLog("🔗 Przypisuję terminy atrybutów do produktu ID: {$final_product_id}", "info");
+                addLog("🔍 DEBUG: Liczba atrybutów do przypisania: " . count($attributes_to_assign), "info");
+
                 foreach ($attributes_to_assign as $attr_info) {
+                    addLog("  🔧 Przypisywanie atrybutu: {$attr_info['name']} (taksonomia: {$attr_info['taxonomy']})", "info");
+                    addLog("  📋 Terminy do przypisania: " . implode(',', $attr_info['term_ids']), "info");
+
+                    // Sprawdź czy taksonomia nadal istnieje
+                    if (!taxonomy_exists($attr_info['taxonomy'])) {
+                        addLog("  ❌ Taksonomia {$attr_info['taxonomy']} nie istnieje podczas przypisywania!", "error");
+                        continue;
+                    }
+
                     $result = wp_set_object_terms($final_product_id, $attr_info['term_ids'], $attr_info['taxonomy']);
                     if (!is_wp_error($result)) {
                         addLog("  ✅ Przypisano " . count($attr_info['term_ids']) . " wartości dla atrybutu {$attr_info['name']}", "success");
+                        addLog("  🔍 Wynik wp_set_object_terms: " . print_r($result, true), "info");
+
+                        // Weryfikacja - sprawdź czy terminy zostały przypisane
+                        $assigned_terms = wp_get_object_terms($final_product_id, $attr_info['taxonomy'], ['fields' => 'ids']);
+                        if (!is_wp_error($assigned_terms)) {
+                            addLog("  ✅ Weryfikacja: Przypisane terminy: " . implode(',', $assigned_terms), "info");
+                        } else {
+                            addLog("  ⚠️ Błąd weryfikacji: " . $assigned_terms->get_error_message(), "warning");
+                        }
                     } else {
                         addLog("  ❌ Błąd przypisania atrybutu {$attr_info['name']}: " . $result->get_error_message(), "error");
                     }
                 }
                 addLog("🏷️ Zakończono przypisywanie atrybutów", "success");
+
+                // Finalna weryfikacja - sprawdź atrybuty produktu po wszystkich operacjach
+                addLog("🔍 FINALNA WERYFIKACJA ATRYBUTÓW dla produktu ID: {$final_product_id}", "info");
+                $final_product = wc_get_product($final_product_id);
+                if ($final_product) {
+                    $final_attributes = $final_product->get_attributes();
+                    addLog("📊 Produkt ma łącznie " . count($final_attributes) . " atrybutów", "info");
+
+                    foreach ($final_attributes as $attr_name => $attr_obj) {
+                        if ($attr_obj instanceof WC_Product_Attribute) {
+                            $options = $attr_obj->get_options();
+                            addLog("  🏷️ {$attr_name}: " . count($options) . " opcji (" . implode(',', $options) . ")", "info");
+                        }
+                    }
+                } else {
+                    addLog("❌ Nie można załadować produktu do weryfikacji", "error");
+                }
+            } else {
+                addLog("⚠️ Brak atrybutów do przypisania", "warning");
             }
 
             // KATEGORIE z dekodowaniem HTML entities
