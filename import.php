@@ -866,6 +866,33 @@ if (!file_exists($xml_file)) {
                 addLog("⚠️ Brak sekcji <images> w XML", "warning");
             }
 
+            // CUSTOM FIELDS (META_DATA) - obsługa <meta_data> z XML
+            if (isset($product_xml->meta_data) && $product_xml->meta_data->meta) {
+                addLog("🔧 Przetwarzam custom fields (meta_data)...", "info");
+
+                $meta_count = 0;
+                foreach ($product_xml->meta_data->meta as $meta_xml) {
+                    $meta_key = trim((string) $meta_xml->key);
+                    $meta_value = trim((string) $meta_xml->value);
+
+                    if (empty($meta_key)) {
+                        continue;
+                    }
+
+                    // Zapisz jako custom field
+                    update_post_meta($final_product_id, $meta_key, $meta_value);
+                    $meta_count++;
+
+                    addLog("  🔹 Custom field: {$meta_key} = " . (strlen($meta_value) > 50 ? substr($meta_value, 0, 50) . '...' : $meta_value), "info");
+                }
+
+                if ($meta_count > 0) {
+                    addLog("✅ Dodano {$meta_count} custom fields", "success");
+                }
+            } else {
+                addLog("ℹ️ Brak sekcji <meta_data> w XML", "info");
+            }
+
             // Oznacz jako importowany
             update_post_meta($final_product_id, '_mhi_imported', 'yes');
             update_post_meta($final_product_id, '_mhi_supplier', $supplier);

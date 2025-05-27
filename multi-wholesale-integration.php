@@ -142,6 +142,11 @@ if (file_exists(MHI_PLUGIN_DIR . 'includes/class-mhi-logger.php')) {
     }
 }
 
+// Załaduj klasę utils
+if (file_exists(MHI_PLUGIN_DIR . 'includes/class-mhi-utils.php')) {
+    require_once MHI_PLUGIN_DIR . 'includes/class-mhi-utils.php';
+}
+
 // Załaduj klasę czyszczenia danych
 if (file_exists(MHI_PLUGIN_DIR . 'includes/class-mhi-cleanup.php')) {
     require_once MHI_PLUGIN_DIR . 'includes/class-mhi-cleanup.php';
@@ -255,6 +260,14 @@ function mhi_init()
     require_once plugin_dir_path(__FILE__) . 'includes/class-mhi-plugin.php';
     $plugin = new MHI_Plugin();
     $plugin->run();
+
+    // Załaduj klasę automatycznego importu cron
+    require_once MHI_PLUGIN_DIR . 'includes/class-mhi-cron-importer.php';
+    MHI_Cron_Importer::init();
+
+    // Załaduj komendy WP-CLI
+    require_once MHI_PLUGIN_DIR . 'includes/class-mhi-cli-commands.php';
+    MHI_CLI_Commands::init();
 
     // Inicjalizuj procesy w tle
     mhi_init_background_processes();
@@ -1085,9 +1098,9 @@ function mhi_handle_fetch_files_forms()
     // Obsługa formularza pobierania plików dla PAR
     if (isset($_POST['mhi_par_fetch_files']) && isset($_POST['mhi_par_fetch_files_nonce']) && wp_verify_nonce($_POST['mhi_par_fetch_files_nonce'], 'mhi_par_fetch_files')) {
         // Załaduj klasę integracji
-        if (file_exists(MHI_PLUGIN_DIR . 'integrations/class-mhi-hurtownia-3.php')) {
-            require_once MHI_PLUGIN_DIR . 'integrations/class-mhi-hurtownia-3.php';
-            $integration = new MHI_Hurtownia_3();
+        if (file_exists(MHI_PLUGIN_DIR . 'integrations/class-mhi-par.php')) {
+            require_once MHI_PLUGIN_DIR . 'integrations/class-mhi-par.php';
+            $integration = new MHI_Par();
 
             try {
                 $files = $integration->fetch_files();

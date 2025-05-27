@@ -153,14 +153,14 @@ class Multi_Hurtownie_Integration
 		$integrations = array(
 			'malfini' => new MHI_Hurtownia_1(), // Malfini (API)
 			'axpol' => new MHI_Hurtownia_2(),   // AXPOL (FTP)
-			'par' => new MHI_Hurtownia_3(),     // PAR (API)
+			'par' => new MHI_Par(),             // PAR (API)
 			'inspirion' => new MHI_Hurtownia_4(), // Inspirion (FTP/SFTP)
 			'macma' => new MHI_Hurtownia_5(),    // Macma (API/XML)
 
 			// Zachowanie kompatybilności wstecznej z poprzednimi identyfikatorami
 			'hurtownia_1' => new MHI_Hurtownia_1(),
 			'hurtownia_2' => new MHI_Hurtownia_2(),
-			'hurtownia_3' => new MHI_Hurtownia_3(),
+			'hurtownia_3' => new MHI_Par(),     // PAR (API) - poprawka mapowania
 			'hurtownia_4' => new MHI_Hurtownia_4(),
 			'hurtownia_5' => new MHI_Hurtownia_5(),
 		);

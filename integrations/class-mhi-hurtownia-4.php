@@ -21,7 +21,7 @@ class MHI_Hurtownia_4 implements MHI_Integration_Interface
      *
      * @var string
      */
-    protected $name = 'malfini';
+    protected $name = 'inspirion';
 
     /**
      * Konfiguracja integracji.
@@ -94,36 +94,12 @@ class MHI_Hurtownia_4 implements MHI_Integration_Interface
      */
     public function generate_woocommerce_xml()
     {
-        // Sprawdź czy klasa generatora istnieje
-        $generator_file = MHI_PLUGIN_DIR . 'integrations/class-mhi-malfini-wc-xml-generator.php';
-        if (!file_exists($generator_file)) {
-            MHI_Logger::error('Nie znaleziono pliku generatora XML WooCommerce dla Malfini');
-            return false;
+        if (class_exists('MHI_Logger')) {
+            MHI_Logger::info('Hurtownia ' . $this->name . ' nie obsługuje generowania plików XML - używa bezpośredniego importu');
         }
 
-        // Załaduj klasę generatora jeśli nie została jeszcze załadowana
-        if (!class_exists('MHI_Malfini_WC_XML_Generator')) {
-            require_once $generator_file;
-        }
-
-        try {
-            // Utwórz instancję generatora
-            $generator = new MHI_Malfini_WC_XML_Generator();
-
-            // Generuj plik XML
-            $result = $generator->generate_woocommerce_xml();
-
-            if ($result) {
-                MHI_Logger::info('Pomyślnie wygenerowano plik XML do importu WooCommerce dla hurtowni ' . $this->name);
-                return true;
-            } else {
-                MHI_Logger::error('Błąd podczas generowania pliku XML WooCommerce dla hurtowni ' . $this->name);
-                return false;
-            }
-        } catch (Exception $e) {
-            MHI_Logger::error('Wyjątek podczas generowania pliku XML WooCommerce dla hurtowni ' . $this->name . ': ' . $e->getMessage());
-            return false;
-        }
+        // Inspirion nie potrzebuje generatora XML - pobiera gotowe pliki XML przez FTP
+        return true;
     }
 
     /**

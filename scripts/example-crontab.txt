@@ -1,0 +1,163 @@
+# =============================================================================
+# PRZYKŁADOWY CRONTAB DLA MULTI-WHOLESALE INTEGRATION
+# Skopiuj odpowiednie linie do swojego crontab (crontab -e)
+# =============================================================================
+
+# UWAGA: Zmień ścieżki na odpowiednie dla Twojego serwera!
+# Przykład: /var/www/html/wp-content/plugins/multi-wholesale-integration/
+
+# =============================================================================
+# PODSTAWOWE IMPORTY - CODZIENNIE W NOCY
+# =============================================================================
+
+# Malfini - codziennie o 2:00
+0 2 * * * php /var/www/html/wp-content/plugins/multi-wholesale-integration/cron-import.php supplier=malfini log_level=info >> /var/log/malfini-import.log 2>&1
+
+# Axpol - codziennie o 3:00
+0 3 * * * php /var/www/html/wp-content/plugins/multi-wholesale-integration/cron-import.php supplier=axpol log_level=info >> /var/log/axpol-import.log 2>&1
+
+# Macma - codziennie o 4:00
+0 4 * * * php /var/www/html/wp-content/plugins/multi-wholesale-integration/cron-import.php supplier=macma log_level=info >> /var/log/macma-import.log 2>&1
+
+# PAR - codziennie o 5:00
+0 5 * * * php /var/www/html/wp-content/plugins/multi-wholesale-integration/cron-import.php supplier=par log_level=info >> /var/log/par-import.log 2>&1
+
+# =============================================================================
+# IMPORTY CO 6 GODZIN (DLA CZĘSTYCH AKTUALIZACJI)
+# =============================================================================
+
+# Malfini - co 6 godzin (6:00, 12:00, 18:00, 00:00)
+0 */6 * * * php /var/www/html/wp-content/plugins/multi-wholesale-integration/cron-import.php supplier=malfini log_level=warning
+
+# Axpol - co 6 godzin z przesunięciem (7:00, 13:00, 19:00, 01:00)
+0 1,7,13,19 * * * php /var/www/html/wp-content/plugins/multi-wholesale-integration/cron-import.php supplier=axpol log_level=warning
+
+# =============================================================================
+# IMPORTY Z ZASTĄPIENIEM OBRAZÓW (RZADZIEJ)
+# =============================================================================
+
+# Malfini - zastąp obrazy raz w tygodniu (niedziela o 1:00)
+0 1 * * 0 php /var/www/html/wp-content/plugins/multi-wholesale-integration/cron-import.php supplier=malfini replace_images=1 log_level=info
+
+# Wszystkie dostawcy - zastąp obrazy raz w miesiącu (1. dzień miesiąca)
+0 2 1 * * php /var/www/html/wp-content/plugins/multi-wholesale-integration/cron-import.php supplier=malfini replace_images=1 log_level=info
+0 3 1 * * php /var/www/html/wp-content/plugins/multi-wholesale-integration/cron-import.php supplier=axpol replace_images=1 log_level=info
+0 4 1 * * php /var/www/html/wp-content/plugins/multi-wholesale-integration/cron-import.php supplier=macma replace_images=1 log_level=info
+0 5 1 * * php /var/www/html/wp-content/plugins/multi-wholesale-integration/cron-import.php supplier=par replace_images=1 log_level=info
+
+# =============================================================================
+# IMPORTY TESTOWE (DLA ROZWOJU)
+# =============================================================================
+
+# Test Malfini - co godzinę w godzinach roboczych (9-17) z limitem produktów
+0 9-17 * * 1-5 php /var/www/html/wp-content/plugins/multi-wholesale-integration/cron-import.php supplier=malfini test_xml=1 max_products=50 log_level=debug
+
+# =============================================================================
+# IMPORTY Z UŻYCIEM SKRYPTU BASH
+# =============================================================================
+
+# Podstawowy import przez skrypt bash
+0 2 * * * /var/www/html/wp-content/plugins/multi-wholesale-integration/scripts/run-cron-import.sh malfini >> /var/log/malfini-bash.log 2>&1
+
+# Import z opcjami przez skrypt bash
+0 3 * * * /var/www/html/wp-content/plugins/multi-wholesale-integration/scripts/run-cron-import.sh -q axpol
+
+# Test przez skrypt bash
+0 */2 * * * /var/www/html/wp-content/plugins/multi-wholesale-integration/scripts/run-cron-import.sh -t -m 10 -v malfini
+
+# =============================================================================
+# IMPORTY PRZEZ HTTP (WEBHOOK)
+# =============================================================================
+
+# Malfini przez curl (może być wywoływane przez zewnętrzny system)
+0 2 * * * curl -s "https://twoja-domena.pl/wp-content/plugins/multi-wholesale-integration/cron-import.php?admin_key=mhi_cron_access&supplier=malfini&log_level=info" >> /var/log/malfini-http.log 2>&1
+
+# =============================================================================
+# CZYSZCZENIE LOGÓW (OPCJONALNE)
+# =============================================================================
+
+# Usuń logi starsze niż 30 dni - codziennie o 6:00
+0 6 * * * find /var/log/ -name "*-import.log" -mtime +30 -delete
+
+# Usuń logi pluginu starsze niż 7 dni
+0 6 * * * find /var/www/html/wp-content/uploads/wholesale/logs/ -name "cron_import_*.log" -mtime +7 -delete
+
+# =============================================================================
+# MONITOROWANIE I ALERTY
+# =============================================================================
+
+# Sprawdź czy import się powiódł i wyślij alert w przypadku błędu
+5 2 * * * if ! grep -q "IMPORT ZAKOŃCZONY" /var/log/malfini-import.log; then echo "Import Malfini failed!" | mail -s "Import Error" admin@twoja-domena.pl; fi
+
+# =============================================================================
+# PRZYKŁADY ZAAWANSOWANE
+# =============================================================================
+
+# Import tylko w dni robocze
+0 2 * * 1-5 php /var/www/html/wp-content/plugins/multi-wholesale-integration/cron-import.php supplier=malfini
+
+# Import tylko w weekendy
+0 2 * * 6,0 php /var/www/html/wp-content/plugins/multi-wholesale-integration/cron-import.php supplier=malfini replace_images=1
+
+# Import z różnymi parametrami w zależności od dnia tygodnia
+# Poniedziałek - pełny import z obrazami
+0 2 * * 1 php /var/www/html/wp-content/plugins/multi-wholesale-integration/cron-import.php supplier=malfini replace_images=1 log_level=info
+
+# Wtorek-Piątek - szybki import bez obrazów
+0 2 * * 2-5 php /var/www/html/wp-content/plugins/multi-wholesale-integration/cron-import.php supplier=malfini log_level=warning
+
+# Sobota - test z debugowaniem
+0 2 * * 6 php /var/www/html/wp-content/plugins/multi-wholesale-integration/cron-import.php supplier=malfini test_xml=1 max_products=100 log_level=debug
+
+# =============================================================================
+# UWAGI I WSKAZÓWKI
+# =============================================================================
+
+# 1. ŚCIEŻKI:
+#    - Zmień /var/www/html/ na rzeczywistą ścieżkę do WordPress
+#    - Sprawdź czy PHP jest dostępne w PATH (php -v)
+#    - Upewnij się że użytkownik cron ma uprawnienia do plików
+
+# 2. LOGOWANIE:
+#    - Logi są zapisywane w /wp-content/uploads/wholesale/logs/
+#    - Dodatkowo można przekierować output do /var/log/
+#    - Użyj >> dla dopisywania, > dla nadpisywania
+
+# 3. POZIOMY LOGOWANIA:
+#    - error: tylko błędy krytyczne (najszybszy)
+#    - warning: błędy + ostrzeżenia
+#    - info: standardowy poziom (domyślny)
+#    - debug: wszystko + szczegóły (najwolniejszy)
+
+# 4. WYDAJNOŚĆ:
+#    - Użyj max_products dla testów
+#    - Rozłóż importy w czasie (różne godziny)
+#    - Monitoruj obciążenie serwera
+
+# 5. BEZPIECZEŃSTWO:
+#    - Ogranicz dostęp do cron-import.php
+#    - Używaj CLI zamiast HTTP gdy to możliwe
+#    - Monitoruj logi pod kątem błędów
+
+# 6. TESTOWANIE:
+#    - Zawsze przetestuj na małej próbce (test_xml=1, max_products=10)
+#    - Sprawdź logi po pierwszym uruchomieniu
+#    - Zweryfikuj czy produkty są importowane poprawnie
+
+# =============================================================================
+# INSTALACJA CRONTAB
+# =============================================================================
+
+# 1. Edytuj crontab:
+#    crontab -e
+
+# 2. Skopiuj wybrane linie z tego pliku
+
+# 3. Zapisz i wyjdź (:wq w vi)
+
+# 4. Sprawdź czy crontab został zapisany:
+#    crontab -l
+
+# 5. Sprawdź logi systemowe:
+#    tail -f /var/log/cron.log
+#    tail -f /var/log/syslog | grep CRON 

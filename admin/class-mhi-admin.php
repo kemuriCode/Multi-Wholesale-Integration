@@ -125,15 +125,15 @@ class MHI_Admin
                 'title' => __('Interwał aktualizacji', 'multi-hurtownie-integration'),
                 'type' => 'select'
             ),
-            'mhi_hurtownia_1_login' => array(
+            'mhi_hurtownia_1_api_username' => array(
                 'title' => __('Login API', 'multi-hurtownie-integration'),
                 'type' => 'text',
-                'default' => ''
+                'default' => 'dmurawski@promo-mix.pl'
             ),
-            'mhi_hurtownia_1_password' => array(
+            'mhi_hurtownia_1_api_password' => array(
                 'title' => __('Hasło API', 'multi-hurtownie-integration'),
                 'type' => 'password',
-                'default' => ''
+                'default' => 'mul4eQ'
             )
         );
 

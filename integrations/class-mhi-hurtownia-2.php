@@ -89,13 +89,13 @@ class MHI_Hurtownia_2 implements MHI_Integration_Interface
         // Inicjalizacja konfiguracji
         $this->config = array(
             'xml_host' => get_option('mhi_hurtownia_2_xml_server', MHI_DEFAULT_AXPOL_XML_SERVER),
-            'xml_username' => mhi_get_secure_config('hurtownia_2_xml_login'),
-            'xml_password' => mhi_get_secure_config('hurtownia_2_xml_password'),
+            'xml_login' => get_option('mhi_hurtownia_2_xml_login', 'userPL017'),
+            'xml_password' => get_option('mhi_hurtownia_2_xml_password', 'vSocD2N8'),
             'img_host' => get_option('mhi_hurtownia_2_img_server', MHI_DEFAULT_AXPOL_IMG_SERVER),
-            'img_username' => mhi_get_secure_config('hurtownia_2_img_login'),
-            'img_password' => mhi_get_secure_config('hurtownia_2_img_password'),
-            'protocol' => get_option('mhi_hurtownia_2_protocol', MHI_DEFAULT_PROTOCOL_SFTP), // Domyślnie SFTP dla AXPOL
-            'port' => get_option('mhi_hurtownia_2_port', 2223), // Port 2223 dla SFTP AXPOL
+            'img_login' => get_option('mhi_hurtownia_2_img_login', 'userPL017img'),
+            'img_password' => get_option('mhi_hurtownia_2_img_password', 'vSocD2N8'),
+            'protocol' => get_option('mhi_hurtownia_2_protocol', 'ftp'), // Zmienione na FTP
+            'port' => get_option('mhi_hurtownia_2_port', 21), // Standardowy port FTP
             'batch_size' => get_option('mhi_hurtownia_2_batch_size', 20), // Liczba zdjęć w partii
             'time_limit' => get_option('mhi_hurtownia_2_time_limit', 120), // Limit czasu w sekundach
         );
@@ -162,10 +162,10 @@ class MHI_Hurtownia_2 implements MHI_Integration_Interface
      */
     public function connect_axpol_socket()
     {
-        $host = $this->config['host'];
+        $host = $this->config['xml_host'];
         $port = 2223;
-        $username = $this->config['username'];
-        $password = $this->config['password'];
+        $username = $this->config['xml_login'];
+        $password = $this->config['xml_password'];
         $timeout = 60;
 
         MHI_Logger::info('Nawiązywanie ręcznego połączenia socket FTP z AXPOL');
@@ -280,9 +280,9 @@ class MHI_Hurtownia_2 implements MHI_Integration_Interface
      */
     private function connect_axpol()
     {
-        $host = $this->config['host'];
-        $username = $this->config['username'];
-        $password = $this->config['password'];
+        $host = $this->config['xml_host'];
+        $username = $this->config['xml_login'];
+        $password = $this->config['xml_password'];
         $port = 2223; // Stały port 2223 dla AXPOL SFTP
 
         MHI_Logger::info('Nawiązywanie połączenia SFTP z AXPOL na porcie ' . $port);
@@ -293,7 +293,7 @@ class MHI_Hurtownia_2 implements MHI_Integration_Interface
 
         try {
             // Użyj biblioteki phpseclib3 do połączenia SFTP
-            $this->sftp = new SFTP($host, $port, 180); // 3 minuty timeout
+            $this->sftp = new \phpseclib3\Net\SFTP($host, $port, 180); // 3 minuty timeout
 
             // Zaloguj się
             if (!$this->sftp->login($username, $password)) {
@@ -362,7 +362,7 @@ class MHI_Hurtownia_2 implements MHI_Integration_Interface
         try {
             // Nawiąż połączenie z serwerem XML
             $this->config['host'] = $this->config['xml_host'];
-            $this->config['username'] = $this->config['xml_username'];
+            $this->config['username'] = $this->config['xml_login'];
             $this->config['password'] = $this->config['xml_password'];
 
             // Specjalna obsługa dla AXPOL
@@ -1353,9 +1353,9 @@ class MHI_Hurtownia_2 implements MHI_Integration_Interface
      */
     private function download_file_by_socket($remote_path, $local_path)
     {
-        $host = $this->config['host'];
-        $username = $this->config['username'];
-        $password = $this->config['password'];
+        $host = $this->config['xml_host'];
+        $username = $this->config['xml_login'];
+        $password = $this->config['xml_password'];
         $port = 2223;
         $timeout = 180; // 3 minuty na pobranie pliku
 
@@ -1503,7 +1503,7 @@ class MHI_Hurtownia_2 implements MHI_Integration_Interface
 
         if ($protocol === 'sftp') {
             // Sprawdź dane do SFTP
-            if (empty($this->config['xml_host']) || empty($this->config['xml_username']) || empty($this->config['xml_password'])) {
+            if (empty($this->config['xml_host']) || empty($this->config['xml_login']) || empty($this->config['xml_password'])) {
                 MHI_Logger::error('Brak wymaganych danych uwierzytelniających dla SFTP w hurtowni ' . $this->name);
                 return false;
             }
@@ -1514,7 +1514,7 @@ class MHI_Hurtownia_2 implements MHI_Integration_Interface
             }
         } else {
             // Sprawdź dane do FTP/FTPS
-            if (empty($this->config['xml_host']) || empty($this->config['xml_username']) || empty($this->config['xml_password'])) {
+            if (empty($this->config['xml_host']) || empty($this->config['xml_login']) || empty($this->config['xml_password'])) {
                 MHI_Logger::error('Brak wymaganych danych uwierzytelniających dla FTP w hurtowni ' . $this->name);
                 return false;
             }
@@ -1589,7 +1589,7 @@ class MHI_Hurtownia_2 implements MHI_Integration_Interface
         if (!$this->sftp) {
             // Użyj danych do serwera ze zdjęciami
             $this->config['host'] = $this->config['img_host'];
-            $this->config['username'] = $this->config['img_username'];
+            $this->config['username'] = $this->config['img_login'];
             $this->config['password'] = $this->config['img_password'];
 
             if (!$this->connect_sftp()) {
@@ -1816,7 +1816,7 @@ class MHI_Hurtownia_2 implements MHI_Integration_Interface
 
             // Ustaw dane połączenia
             $this->config['host'] = $this->config['xml_host'];
-            $this->config['username'] = $this->config['xml_username'];
+            $this->config['username'] = $this->config['xml_login'];
             $this->config['password'] = $this->config['xml_password'];
 
             MHI_Logger::info('Rozpoczynam test połączenia z ' . $this->config['host'] . ' jako ' . $this->config['username']);
@@ -2060,7 +2060,7 @@ class MHI_Hurtownia_2 implements MHI_Integration_Interface
      */
     private function test_socket_connection()
     {
-        $host = $this->config['host'];
+        $host = $this->config['xml_host'];
         $port = $this->config['port'];
         $timeout = 10;
 
@@ -2107,7 +2107,7 @@ class MHI_Hurtownia_2 implements MHI_Integration_Interface
      */
     private function test_axpol_socket()
     {
-        $host = $this->config['host'];
+        $host = $this->config['xml_host'];
         $port = 2223; // Zawsze port 2223 dla AXPOL
         $timeout = 30; // Dłuższy timeout - 30 sekund
 

@@ -227,6 +227,24 @@ $active_tab = isset($_GET['tab']) ? sanitize_text_field($_GET['tab']) : 'general
                         <?php _e('Ustawienia Malfini', 'multi-hurtownie-integration'); ?></h2>
                 </div>
                 <div class="inside">
+                    <div class="notice notice-success">
+                        <p><strong><?php _e('Informacja:', 'multi-hurtownie-integration'); ?></strong>
+                            <?php _e('Malfini używa REST API v4. Dane dostępowe zostały już skonfigurowane:', 'multi-hurtownie-integration'); ?>
+                        </p>
+                        <ul>
+                            <li><?php _e('• API URL: https://api.malfini.com/api/v4/', 'multi-hurtownie-integration'); ?>
+                            </li>
+                            <li><?php _e('• Login: dmurawski@promo-mix.pl', 'multi-hurtownie-integration'); ?></li>
+                            <li><?php _e('• Hasło: mul4eQ', 'multi-hurtownie-integration'); ?></li>
+                        </ul>
+                        <p><strong><?php _e('Dostępne endpointy:', 'multi-hurtownie-integration'); ?></strong></p>
+                        <ul>
+                            <li><?php _e('• /product - Lista produktów', 'multi-hurtownie-integration'); ?></li>
+                            <li><?php _e('• /product/availabilities - Dostępność produktów', 'multi-hurtownie-integration'); ?>
+                            </li>
+                            <li><?php _e('• /product/prices - Ceny produktów', 'multi-hurtownie-integration'); ?></li>
+                        </ul>
+                    </div>
                     <form method="post" action="options.php">
                         <?php
                         settings_fields('mhi_hurtownia_1_settings');
@@ -439,6 +457,24 @@ $active_tab = isset($_GET['tab']) ? sanitize_text_field($_GET['tab']) : 'general
                         <?php _e('Ustawienia PAR', 'multi-hurtownie-integration'); ?></h2>
                 </div>
                 <div class="inside">
+                    <div class="notice notice-warning">
+                        <p><strong><?php _e('Ważne:', 'multi-hurtownie-integration'); ?></strong>
+                            <?php _e('PAR wymaga dodania Twojego adresu IP do białej listy. Skontaktuj się z PAR aby:', 'multi-hurtownie-integration'); ?>
+                        </p>
+                        <ul>
+                            <li><?php _e('• Otrzymać login i hasło do API', 'multi-hurtownie-integration'); ?></li>
+                            <li><?php _e('• Dodać Twój adres IP do białej listy', 'multi-hurtownie-integration'); ?></li>
+                        </ul>
+                        <p><strong><?php _e('Twój aktualny adres IP:', 'multi-hurtownie-integration'); ?></strong>
+                            <code><?php
+                            if (class_exists('MHI_Utils')) {
+                                echo esc_html(MHI_Utils::get_external_ip());
+                            } else {
+                                echo esc_html($_SERVER['SERVER_ADDR'] ?? 'Nieznany');
+                            }
+                            ?></code>
+                        </p>
+                    </div>
                     <form method="post" action="options.php">
                         <?php
                         settings_fields('mhi_par_settings');
