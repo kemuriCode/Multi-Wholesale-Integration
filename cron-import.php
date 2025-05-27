@@ -226,35 +226,37 @@ foreach ($products as $product_xml) {
         if (!empty((string) $product_xml->height))
             $product->set_height((string) $product_xml->height);
 
-                // ATRYBUTY - identyczna logika jak w import.php
+        // ATRYBUTY - identyczna logika jak w import.php
         $product_attributes = [];
         $wc_attributes = [];
         $attributes_to_assign = [];
-        
+
         if (isset($product_xml->attributes) && isset($product_xml->attributes->attribute)) {
             cron_log("🏷️ Przetwarzam atrybuty produktu...", 'debug');
-            
+
             $attributes_processed = 0;
             foreach ($product_xml->attributes->attribute as $attribute_xml) {
                 $attr_name = trim((string) $attribute_xml->name);
                 $attr_value = trim((string) $attribute_xml->value);
-                
-                if (empty($attr_name) || empty($attr_value)) continue;
-                
+
+                if (empty($attr_name) || empty($attr_value))
+                    continue;
+
                 $values = array_map('trim', explode(',', $attr_value));
                 $values = array_filter($values);
-                
-                if (empty($values)) continue;
-                
+
+                if (empty($values))
+                    continue;
+
                 cron_log("🔹 Atrybut: {$attr_name} = " . implode(', ', $values), 'debug');
-                
+
                 $product_attributes[] = ['name' => $attr_name, 'value' => implode(', ', $values)];
-                
+
                 $attr_slug = wc_sanitize_taxonomy_name($attr_name);
                 $taxonomy = wc_attribute_taxonomy_name($attr_slug);
-                
+
                 $attribute_id = wc_attribute_taxonomy_id_by_name($attr_slug);
-                
+
                 if (!$attribute_id) {
                     $attribute_id = wc_create_attribute(array(
                         'name' => $attr_name,
@@ -263,7 +265,7 @@ foreach ($products as $product_xml) {
                         'order_by' => 'menu_order',
                         'has_archives' => false
                     ));
-                    
+
                     if (!is_wp_error($attribute_id)) {
                         cron_log("✅ Utworzono atrybut globalny: {$attr_name} (ID: {$attribute_id})", 'debug');
                         delete_transient('wc_attribute_taxonomies');
@@ -275,7 +277,7 @@ foreach ($products as $product_xml) {
                         continue;
                     }
                 }
-                
+
                 if (!taxonomy_exists($taxonomy)) {
                     register_taxonomy($taxonomy, 'product', [
                         'hierarchical' => false,
@@ -285,7 +287,7 @@ foreach ($products as $product_xml) {
                         'public' => false,
                     ]);
                 }
-                
+
                 $term_ids = array();
                 foreach ($values as $value) {
                     $term = get_term_by('name', $value, $taxonomy);
@@ -298,7 +300,7 @@ foreach ($products as $product_xml) {
                         $term_ids[] = $term->term_id;
                     }
                 }
-                
+
                 if (!empty($term_ids)) {
                     $wc_attribute = new WC_Product_Attribute();
                     $wc_attribute->set_id($attribute_id);
@@ -307,37 +309,38 @@ foreach ($products as $product_xml) {
                     $wc_attribute->set_visible(true);
                     $wc_attribute->set_variation(false);
                     $wc_attributes[] = $wc_attribute;
-                    
+
                     $attributes_to_assign[] = [
                         'taxonomy' => $taxonomy,
                         'term_ids' => $term_ids,
                         'name' => $attr_name
                     ];
-                    
+
                     $attributes_processed++;
                 }
             }
-            
+
             if ($attributes_processed > 0) {
                 cron_log("✅ Przetworzono {$attributes_processed} atrybutów", 'debug');
             }
         }
-        
+
         // Ustaw atrybuty na produkcie
         if (!empty($wc_attributes)) {
             $product->set_attributes($wc_attributes);
         }
-        
+
         // ZAPISZ PRODUKT
         $saved_product_id = $product->save();
-        
+
         if (!$saved_product_id) {
             throw new Exception("Nie można zapisać produktu");
         }
-        
+
         $final_product_id = $is_update ? $product_id : $saved_product_id;
-        if (!$is_update) $product_id = $saved_product_id;
-        
+        if (!$is_update)
+            $product_id = $saved_product_id;
+
         // PRZYPISZ TERMINY ATRYBUTÓW
         if (!empty($attributes_to_assign)) {
             foreach ($attributes_to_assign as $attr_info) {
@@ -349,14 +352,14 @@ foreach ($products as $product_xml) {
                 }
             }
         }
-        
+
         // KATEGORIE
         if (isset($product_xml->categories)) {
             $categories_text = trim((string) $product_xml->categories);
             if (!empty($categories_text)) {
                 $categories_text = html_entity_decode($categories_text, ENT_QUOTES, 'UTF-8');
                 cron_log("📁 Kategorie: {$categories_text}", 'debug');
-                
+
                 $category_ids = cron_process_product_categories($categories_text);
                 if (!empty($category_ids)) {
                     wp_set_object_terms($final_product_id, $category_ids, 'product_cat');
@@ -364,24 +367,24 @@ foreach ($products as $product_xml) {
                 }
             }
         }
-        
+
         // MARKI
         $brand_name = '';
-        
+
         if (isset($product_xml->attributes) && isset($product_xml->attributes->attribute)) {
             foreach ($product_xml->attributes->attribute as $attribute_xml) {
                 $attr_name = trim((string) $attribute_xml->name);
                 $attr_value = trim((string) $attribute_xml->value);
-                
+
                 $brand_attribute_names = ['marka', 'brand', 'manufacturer', 'producent', 'firma'];
-                
+
                 if (in_array(strtolower($attr_name), $brand_attribute_names) && !empty($attr_value)) {
                     $brand_name = $attr_value;
                     break;
                 }
             }
         }
-        
+
         if (empty($brand_name)) {
             if (isset($product_xml->brand) && !empty(trim((string) $product_xml->brand))) {
                 $brand_name = trim((string) $product_xml->brand);
@@ -389,7 +392,7 @@ foreach ($products as $product_xml) {
                 $brand_name = trim((string) $product_xml->manufacturer);
             }
         }
-        
+
         if (!empty($brand_name)) {
             $brand_result = cron_process_product_brand($brand_name, $final_product_id);
             if ($brand_result['success']) {
@@ -398,11 +401,11 @@ foreach ($products as $product_xml) {
                 cron_log("⚠️ " . $brand_result['message'], 'warning');
             }
         }
-        
+
         // OBRAZY
         if (isset($product_xml->images) && $product_xml->images->image) {
             $images = $product_xml->images->image;
-            
+
             if (is_object($images) && get_class($images) === 'SimpleXMLElement') {
                 $images_array = [];
                 foreach ($images as $image) {
@@ -415,9 +418,9 @@ foreach ($products as $product_xml) {
             } elseif (!is_array($images)) {
                 $images = [$images];
             }
-            
+
             cron_log("📷 Znaleziono " . count($images) . " obrazków w XML", 'debug');
-            
+
             if ($is_update && $replace_images) {
                 cron_log("🧹 Aktualizacja: Czyszczenie starej galerii...", 'debug');
                 $clean_result = cron_clean_product_gallery($final_product_id, false);
@@ -425,9 +428,9 @@ foreach ($products as $product_xml) {
                     cron_log("✅ Usunięto " . $clean_result['removed_count'] . " starych obrazów galerii", 'debug');
                 }
             }
-            
+
             $gallery_result = cron_import_product_gallery($images, $final_product_id);
-            
+
             if ($gallery_result['success']) {
                 $stats['images'] += $gallery_result['imported_count'];
                 cron_log("🖼️ Galeria produktu: " . $gallery_result['message'], 'debug');
@@ -435,30 +438,31 @@ foreach ($products as $product_xml) {
                 cron_log("❌ Błąd galerii: " . $gallery_result['message'], 'error');
             }
         }
-        
+
         // CUSTOM FIELDS (META_DATA)
         if (isset($product_xml->meta_data) && $product_xml->meta_data->meta) {
             $meta_count = 0;
             foreach ($product_xml->meta_data->meta as $meta_xml) {
                 $meta_key = trim((string) $meta_xml->key);
                 $meta_value = trim((string) $meta_xml->value);
-                
-                if (empty($meta_key)) continue;
-                
+
+                if (empty($meta_key))
+                    continue;
+
                 update_post_meta($final_product_id, $meta_key, $meta_value);
                 $meta_count++;
             }
-            
+
             if ($meta_count > 0) {
                 cron_log("✅ Dodano {$meta_count} custom fields", 'debug');
             }
         }
-        
+
         // Oznacz jako importowany
         update_post_meta($final_product_id, '_mhi_imported', 'yes');
         update_post_meta($final_product_id, '_mhi_supplier', $supplier);
         update_post_meta($final_product_id, '_mhi_import_date', current_time('mysql'));
-        
+
         // Statystyki
         if ($is_update) {
             $stats['updated']++;
@@ -467,12 +471,12 @@ foreach ($products as $product_xml) {
             $stats['created']++;
             cron_log("✅ Utworzono produkt ID: {$final_product_id}", 'info');
         }
-        
+
     } catch (Exception $e) {
         $stats['failed']++;
         cron_log("❌ Błąd: " . $e->getMessage(), 'error');
     }
-    
+
     // Krótka przerwa żeby nie przeciążyć serwera
     if ($processed % 10 == 0) {
         usleep(100000); // 0.1 sekundy co 10 produktów
@@ -527,17 +531,19 @@ exit($stats['failed'] > 0 ? 1 : 0);
 /**
  * Przetwarza kategorie produktu
  */
-function cron_process_product_categories($categories_text) {
+function cron_process_product_categories($categories_text)
+{
     $category_ids = [];
-    
+
     if (strpos($categories_text, '>') !== false) {
         // Hierarchia kategorii
         $parts = array_map('trim', explode('>', $categories_text));
         $parent_id = 0;
-        
+
         foreach ($parts as $part) {
-            if (empty($part)) continue;
-            
+            if (empty($part))
+                continue;
+
             $term = get_term_by('name', $part, 'product_cat');
             if (!$term) {
                 $term = wp_insert_term($part, 'product_cat', ['parent' => $parent_id]);
@@ -566,14 +572,15 @@ function cron_process_product_categories($categories_text) {
             cron_log("✓ Znaleziono kategorię: {$categories_text} (ID: {$term->term_id})", 'debug');
         }
     }
-    
+
     return array_unique($category_ids);
 }
 
 /**
  * Przetwarza markę produktu
  */
-function cron_process_product_brand($brand_name, $product_id) {
+function cron_process_product_brand($brand_name, $product_id)
+{
     $possible_brand_taxonomies = [
         'product_brand',
         'pwb-brand',
@@ -583,16 +590,16 @@ function cron_process_product_brand($brand_name, $product_id) {
         'pa_brand',
         'pa_marka'
     ];
-    
+
     $brand_taxonomy = null;
-    
+
     foreach ($possible_brand_taxonomies as $taxonomy) {
         if (taxonomy_exists($taxonomy)) {
             $brand_taxonomy = $taxonomy;
             break;
         }
     }
-    
+
     if (!$brand_taxonomy) {
         register_taxonomy('product_brand', 'product', [
             'label' => 'Marki',
@@ -606,19 +613,19 @@ function cron_process_product_brand($brand_name, $product_id) {
             'rewrite' => ['slug' => 'marka'],
             'query_var' => true,
         ]);
-        
+
         $brand_taxonomy = 'product_brand';
         cron_log("✅ Utworzono taksonomię marek: product_brand", 'debug');
     }
-    
+
     $existing_term = get_term_by('name', $brand_name, $brand_taxonomy);
-    
+
     if (!$existing_term) {
         $term_result = wp_insert_term($brand_name, $brand_taxonomy, [
             'description' => "Marka: {$brand_name}",
             'slug' => sanitize_title($brand_name)
         ]);
-        
+
         if (is_wp_error($term_result)) {
             return [
                 'success' => false,
@@ -626,16 +633,16 @@ function cron_process_product_brand($brand_name, $product_id) {
                 'taxonomy' => $brand_taxonomy
             ];
         }
-        
+
         $brand_term_id = $term_result['term_id'];
         cron_log("➕ Utworzono markę: {$brand_name} (ID: {$brand_term_id})", 'debug');
     } else {
         $brand_term_id = $existing_term->term_id;
         cron_log("✓ Marka istnieje: {$brand_name} (ID: {$brand_term_id})", 'debug');
     }
-    
+
     $assign_result = wp_set_object_terms($product_id, [$brand_term_id], $brand_taxonomy);
-    
+
     if (is_wp_error($assign_result)) {
         return [
             'success' => false,
@@ -643,7 +650,7 @@ function cron_process_product_brand($brand_name, $product_id) {
             'taxonomy' => $brand_taxonomy
         ];
     }
-    
+
     return [
         'success' => true,
         'message' => "Przypisano markę: {$brand_name} (taksonomia: {$brand_taxonomy})",
@@ -656,17 +663,18 @@ function cron_process_product_brand($brand_name, $product_id) {
 /**
  * Czyści starą galerię produktu
  */
-function cron_clean_product_gallery($product_id, $remove_featured = false) {
+function cron_clean_product_gallery($product_id, $remove_featured = false)
+{
     cron_log("🧹 Czyszczenie galerii produktu ID: {$product_id}", 'debug');
-    
+
     $removed_count = 0;
     $errors = [];
-    
+
     $gallery_ids = get_post_meta($product_id, '_product_image_gallery', true);
     if (!empty($gallery_ids)) {
         $gallery_ids = explode(',', $gallery_ids);
         $gallery_ids = array_filter($gallery_ids);
-        
+
         foreach ($gallery_ids as $attachment_id) {
             if (wp_delete_attachment($attachment_id, true)) {
                 $removed_count++;
@@ -676,10 +684,10 @@ function cron_clean_product_gallery($product_id, $remove_featured = false) {
                 cron_log("❌ Nie można usunąć obrazu galerii ID: {$attachment_id}", 'warning');
             }
         }
-        
+
         delete_post_meta($product_id, '_product_image_gallery');
     }
-    
+
     if ($remove_featured) {
         $featured_id = get_post_thumbnail_id($product_id);
         if ($featured_id) {
@@ -693,7 +701,7 @@ function cron_clean_product_gallery($product_id, $remove_featured = false) {
             }
         }
     }
-    
+
     return [
         'removed_count' => $removed_count,
         'errors' => $errors
@@ -703,9 +711,10 @@ function cron_clean_product_gallery($product_id, $remove_featured = false) {
 /**
  * Importuje galerię obrazów dla produktu
  */
-function cron_import_product_gallery($images, $product_id) {
+function cron_import_product_gallery($images, $product_id)
+{
     cron_log("🎨 Rozpoczęcie importu galerii dla produktu ID: {$product_id}", 'debug');
-    
+
     $product = wc_get_product($product_id);
     if (!$product) {
         cron_log("❌ Nie można załadować produktu ID: {$product_id}", 'error');
@@ -717,19 +726,19 @@ function cron_import_product_gallery($images, $product_id) {
             'skipped_count' => 0
         ];
     }
-    
+
     $image_ids = [];
     $imported_count = 0;
     $failed_count = 0;
     $skipped_count = 0;
-    
+
     foreach ($images as $index => $image) {
         $image_url = '';
         $img_number = $index + 1;
-        
+
         // Sprawdź różne formaty XML dla obrazów
         $attributes = $image->attributes();
-        
+
         if (isset($attributes['src'])) {
             $image_url = trim((string) $attributes['src']);
         } elseif (isset($image->src)) {
@@ -737,29 +746,29 @@ function cron_import_product_gallery($images, $product_id) {
         } else {
             $image_url = trim((string) $image);
         }
-        
+
         // Walidacja URL
         if (empty($image_url)) {
             cron_log("⚠️ Obraz {$img_number}: Pusty URL - pomijam", 'warning');
             $skipped_count++;
             continue;
         }
-        
+
         if (!filter_var($image_url, FILTER_VALIDATE_URL)) {
             cron_log("⚠️ Obraz {$img_number}: Nieprawidłowy URL ({$image_url}) - pomijam", 'warning');
             $skipped_count++;
             continue;
         }
-        
+
         // Określ czy to główny obraz (pierwszy)
         $is_featured = ($index === 0);
         $image_type = $is_featured ? "GŁÓWNY" : "GALERIA";
-        
+
         cron_log("📥 Obraz {$img_number} ({$image_type}): Pobieram {$image_url}", 'debug');
-        
+
         // Importuj obraz
         $attachment_id = cron_import_product_image($image_url, $product_id, $is_featured);
-        
+
         if ($attachment_id) {
             $image_ids[] = $attachment_id;
             $imported_count++;
@@ -769,28 +778,28 @@ function cron_import_product_gallery($images, $product_id) {
             cron_log("❌ Obraz {$img_number} ({$image_type}): Błąd importu", 'error');
         }
     }
-    
+
     // Konfiguracja galerii WooCommerce
     if ($imported_count > 0) {
         $featured_id = get_post_thumbnail_id($product_id);
-        
+
         // Przygotuj galerię (wszystkie zaimportowane obrazy oprócz głównego)
         $new_gallery_ids = array_filter($image_ids, function ($id) use ($featured_id) {
             return $id != $featured_id;
         });
-        
+
         // Sprawdź czy istnieją już obrazy w galerii (przy aktualizacji)
         $existing_gallery = get_post_meta($product_id, '_product_image_gallery', true);
         $existing_gallery_ids = [];
-        
+
         if (!empty($existing_gallery)) {
             $existing_gallery_ids = explode(',', $existing_gallery);
             $existing_gallery_ids = array_filter($existing_gallery_ids);
         }
-        
+
         // Określ finalną galerię
         $final_gallery_ids = [];
-        
+
         if (!empty($existing_gallery_ids) && !empty($new_gallery_ids)) {
             $final_gallery_ids = array_unique(array_merge($existing_gallery_ids, $new_gallery_ids));
         } elseif (!empty($new_gallery_ids)) {
@@ -798,36 +807,36 @@ function cron_import_product_gallery($images, $product_id) {
         } elseif (!empty($existing_gallery_ids)) {
             $final_gallery_ids = $existing_gallery_ids;
         }
-        
+
         // Ustaw galerię w WooCommerce
         if (!empty($final_gallery_ids)) {
             update_post_meta($product_id, '_product_image_gallery', implode(',', $final_gallery_ids));
-            
+
             $product_fresh = wc_get_product($product_id);
             if ($product_fresh) {
                 wp_cache_delete($product_id, 'posts');
                 wp_cache_delete($product_id, 'post_meta');
-                
+
                 $product_fresh->set_gallery_image_ids($final_gallery_ids);
                 $save_result = $product_fresh->save();
-                
+
                 if ($save_result) {
                     cron_log("🖼️ Galeria WooCommerce: Ustawiono " . count($final_gallery_ids) . " obrazów w galerii", 'debug');
                 } else {
                     cron_log("❌ Nie udało się zapisać galerii produktu", 'error');
                 }
             }
-            
+
             $message = "Główny obraz + galeria z " . count($final_gallery_ids) . " obrazami (zaimportowano: {$imported_count})";
         } else {
             $message = "Tylko główny obraz (zaimportowano: {$imported_count})";
         }
-        
+
         // Dodatkowe meta dla śledzenia
         update_post_meta($product_id, '_mhi_gallery_count', count($final_gallery_ids ?? []));
         update_post_meta($product_id, '_mhi_total_images', $imported_count);
         update_post_meta($product_id, '_mhi_gallery_updated', current_time('mysql'));
-        
+
         return [
             'success' => true,
             'message' => $message,
@@ -852,9 +861,10 @@ function cron_import_product_gallery($images, $product_id) {
 /**
  * Importuje pojedynczy obraz produktu
  */
-function cron_import_product_image($image_url, $product_id, $is_featured = false) {
+function cron_import_product_image($image_url, $product_id, $is_featured = false)
+{
     cron_log("🚀 Import obrazu - URL: " . $image_url, 'debug');
-    
+
     // Sprawdź czy obraz już istnieje
     $existing = get_posts([
         'post_type' => 'attachment',
@@ -866,7 +876,7 @@ function cron_import_product_image($image_url, $product_id, $is_featured = false
         ],
         'posts_per_page' => 1
     ]);
-    
+
     if ($existing) {
         $attach_id = $existing[0]->ID;
         if ($is_featured) {
@@ -875,27 +885,27 @@ function cron_import_product_image($image_url, $product_id, $is_featured = false
         cron_log("♻️ Użyto istniejący obraz (ID: {$attach_id})", 'debug');
         return $attach_id;
     }
-    
+
     // Generuj losową datę z ostatnich 18 miesięcy
     $months_back = rand(1, 18);
     $random_timestamp = strtotime("-{$months_back} months");
-    
+
     $year = (int) date('Y', $random_timestamp);
     $month = (int) date('m', $random_timestamp);
     $day = rand(1, 28);
     $hour = rand(8, 18);
     $minute = rand(0, 59);
     $second = rand(0, 59);
-    
+
     $final_timestamp = mktime($hour, $minute, $second, $month, $day, $year);
-    
+
     $upload_dir = wp_upload_dir(date('Y/m', $final_timestamp));
-    
+
     if (isset($upload_dir['error']) && $upload_dir['error']) {
         cron_log("❌ Błąd wp_upload_dir: " . $upload_dir['error'], 'error');
         return false;
     }
-    
+
     if (!file_exists($upload_dir['path'])) {
         $created = wp_mkdir_p($upload_dir['path']);
         if (!$created) {
@@ -903,12 +913,12 @@ function cron_import_product_image($image_url, $product_id, $is_featured = false
             return false;
         }
     }
-    
+
     if (!is_writable($upload_dir['path'])) {
         cron_log("❌ Brak praw zapisu do folderu: " . $upload_dir['path'], 'error');
         return false;
     }
-    
+
     // Pobierz obraz
     $response = wp_remote_get($image_url, [
         'timeout' => 60,
@@ -919,71 +929,71 @@ function cron_import_product_image($image_url, $product_id, $is_featured = false
             'Accept-Encoding' => 'gzip, deflate'
         ]
     ]);
-    
+
     if (is_wp_error($response)) {
         cron_log("❌ Błąd pobierania obrazu: " . $response->get_error_message(), 'error');
         return false;
     }
-    
+
     $response_code = wp_remote_retrieve_response_code($response);
     if ($response_code !== 200) {
         cron_log("❌ HTTP błąd {$response_code} dla obrazu: {$image_url}", 'error');
         return false;
     }
-    
+
     $image_data = wp_remote_retrieve_body($response);
     if (empty($image_data)) {
         cron_log("❌ Puste dane obrazu z URL: {$image_url}", 'error');
         return false;
     }
-    
+
     // Sprawdź czy dane to rzeczywiście obraz
     $image_info = @getimagesizefromstring($image_data);
     if (!$image_info) {
         cron_log("❌ Nieprawidłowe dane obrazu z URL: {$image_url}", 'error');
         return false;
     }
-    
+
     // Przygotuj nazwę pliku
     $original_filename = basename($image_url);
     $original_filename = sanitize_file_name($original_filename);
     $original_filename = preg_replace('/\?.*$/', '', $original_filename);
-    
+
     $filename_base = pathinfo($original_filename, PATHINFO_FILENAME);
     $original_extension = pathinfo($original_filename, PATHINFO_EXTENSION);
-    
+
     // Zapisz tymczasowo oryginalny plik
     $temp_filename = time() . '_' . $filename_base . '.' . $original_extension;
     $temp_file_path = $upload_dir['path'] . '/' . $temp_filename;
-    
+
     $bytes_written = file_put_contents($temp_file_path, $image_data);
     if ($bytes_written === false) {
         cron_log("❌ Nie udało się zapisać tymczasowego pliku: {$temp_file_path}", 'error');
         return false;
     }
-    
+
     // Konwertuj do WebP jeśli możliwe
     $final_filename = $filename_base . '_' . time() . '.webp';
     $final_file_path = $upload_dir['path'] . '/' . $final_filename;
-    
+
     $webp_converted = false;
-    
+
     if (function_exists('imagewebp') && function_exists('imagecreatefromstring')) {
         $source_image = @imagecreatefromstring($image_data);
-        
+
         if ($source_image !== false) {
             // Optymalizuj obraz - ustaw maksymalną szerokość
             $max_width = 1200;
             $original_width = imagesx($source_image);
             $original_height = imagesy($source_image);
-            
+
             if ($original_width > $max_width) {
                 $ratio = $max_width / $original_width;
                 $new_width = $max_width;
                 $new_height = intval($original_height * $ratio);
-                
+
                 $resized_image = imagecreatetruecolor($new_width, $new_height);
-                
+
                 // Zachowaj przezroczystość dla PNG
                 if ($image_info[2] == IMAGETYPE_PNG) {
                     imagealphablending($resized_image, false);
@@ -991,14 +1001,14 @@ function cron_import_product_image($image_url, $product_id, $is_featured = false
                     $transparent = imagecolorallocatealpha($resized_image, 255, 255, 255, 127);
                     imagefill($resized_image, 0, 0, $transparent);
                 }
-                
+
                 imagecopyresampled($resized_image, $source_image, 0, 0, 0, 0, $new_width, $new_height, $original_width, $original_height);
                 imagedestroy($source_image);
                 $source_image = $resized_image;
-                
+
                 cron_log("🖼️ Zmieniono rozmiar obrazu do {$new_width}x{$new_height}px", 'debug');
             }
-            
+
             // Konwertuj do WebP
             if (@imagewebp($source_image, $final_file_path, 85)) {
                 $webp_converted = true;
@@ -1006,13 +1016,13 @@ function cron_import_product_image($image_url, $product_id, $is_featured = false
             } else {
                 cron_log("⚠️ Nie udało się skonwertować do WebP, używam oryginalnego formatu", 'warning');
             }
-            
+
             imagedestroy($source_image);
         }
     } else {
         cron_log("⚠️ GD nie obsługuje WebP, używam oryginalnego formatu", 'warning');
     }
-    
+
     // Jeśli konwersja WebP się nie udała, użyj oryginalnego pliku
     if (!$webp_converted) {
         $final_filename = $temp_filename;
@@ -1020,7 +1030,7 @@ function cron_import_product_image($image_url, $product_id, $is_featured = false
     } else {
         @unlink($temp_file_path);
     }
-    
+
     // Dodaj do biblioteki mediów
     $filetype = wp_check_filetype($final_filename, null);
     $attachment = [
@@ -1034,26 +1044,26 @@ function cron_import_product_image($image_url, $product_id, $is_featured = false
         'post_modified' => date('Y-m-d H:i:s', $final_timestamp),
         'post_modified_gmt' => gmdate('Y-m-d H:i:s', $final_timestamp)
     ];
-    
+
     $attach_id = wp_insert_attachment($attachment, $final_file_path, $product_id);
-    
+
     if (!$attach_id) {
         cron_log("❌ Nie udało się utworzyć załącznika w WordPress", 'error');
         @unlink($final_file_path);
         return false;
     }
-    
+
     // Zapisz URL źródłowy i informacje o konwersji
     update_post_meta($attach_id, '_mhi_source_url', $image_url);
     update_post_meta($attach_id, '_mhi_webp_converted', $webp_converted ? 'yes' : 'no');
     update_post_meta($attach_id, '_mhi_original_format', $original_extension);
     update_post_meta($attach_id, '_mhi_random_date', date('Y-m-d H:i:s', $final_timestamp));
     update_post_meta($attach_id, '_mhi_folder_path', date('Y/m', $final_timestamp));
-    
+
     require_once(ABSPATH . 'wp-admin/includes/image.php');
     $attach_data = wp_generate_attachment_metadata($attach_id, $final_file_path);
     wp_update_attachment_metadata($attach_id, $attach_data);
-    
+
     // Ustaw jako główny obraz
     if ($is_featured) {
         $thumbnail_result = set_post_thumbnail($product_id, $attach_id);
@@ -1063,10 +1073,10 @@ function cron_import_product_image($image_url, $product_id, $is_featured = false
             cron_log("❌ Nie udało się ustawić głównego obrazu produktu", 'error');
         }
     }
-    
+
     $format_info = $webp_converted ? " (WebP)" : " ({$original_extension})";
     $folder_info = date('Y/m', $final_timestamp);
     cron_log("📸 Dodano obraz: {$final_filename}{$format_info} → {$folder_info}/", 'debug');
-    
+
     return $attach_id;
 }
