@@ -603,7 +603,7 @@ class MHI_Admin
             return;
         }
 
-        // Zarejestruj styles
+        // Zarejestruj style
         wp_enqueue_style('mhi-admin-css', MHI_PLUGIN_URL . 'admin/css/mhi-admin.css', array(), MHI_VERSION);
 
         // Zarejestruj skrypty
