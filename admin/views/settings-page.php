@@ -138,6 +138,105 @@ $active_tab = isset($_GET['tab']) ? sanitize_text_field($_GET['tab']) : 'general
                                     <?php _e('Wszystkie marki produktów', 'multi-hurtownie-integration'); ?>
                                 </label>
                             </p>
+
+                            <!-- Nowa sekcja: Usuwanie mediów według użytkownika -->
+                            <div class="mhi-cleanup-user-media"
+                                style="margin: 15px 0; padding: 15px; background: #f9f9f9; border-radius: 5px;">
+                                <h4 style="margin-top: 0;">
+                                    <?php _e('Usuwanie mediów produktów według użytkownika', 'multi-hurtownie-integration'); ?>
+                                </h4>
+                                <div class="notice notice-info inline" style="margin: 10px 0;">
+                                    <p><strong><?php _e('BEZPIECZEŃSTWO:', 'multi-hurtownie-integration'); ?></strong>
+                                        <?php _e('Ta opcja usuwa TYLKO media związane z produktami WooCommerce (główne zdjęcia, galerie, załączniki produktów). Inne media użytkownika (np. zdjęcia w postach, stronach) pozostają nietknięte.', 'multi-hurtownie-integration'); ?>
+                                    </p>
+                                </div>
+                                <p>
+                                    <label>
+                                        <input type="checkbox" name="mhi_cleanup_user_media" value="1"
+                                            id="mhi-cleanup-user-media">
+                                        <?php _e('Usuń media produktów dodane przez konkretnego użytkownika', 'multi-hurtownie-integration'); ?>
+                                    </label>
+                                </p>
+                                <div id="mhi-user-selection" style="margin-left: 25px; display: none;">
+                                    <p>
+                                        <label
+                                            for="mhi_cleanup_user_id"><?php _e('Wybierz użytkownika:', 'multi-hurtownie-integration'); ?></label>
+                                        <select name="mhi_cleanup_user_id" id="mhi_cleanup_user_id">
+                                            <option value="">
+                                                <?php _e('-- Wybierz użytkownika --', 'multi-hurtownie-integration'); ?>
+                                            </option>
+                                            <?php
+                                            // Pobierz użytkowników którzy dodali media
+                                            $users_with_media = get_users([
+                                                'meta_query' => [
+                                                    [
+                                                        'key' => 'wp_user_level',
+                                                        'compare' => 'EXISTS'
+                                                    ]
+                                                ],
+                                                'orderby' => 'display_name'
+                                            ]);
+
+                                            $marcin_user_shown = false;
+
+                                            foreach ($users_with_media as $user) {
+                                                // Sprawdź czy użytkownik ma jakieś media
+                                                $media_count = count_user_posts($user->ID, 'attachment');
+                                                if ($media_count > 0) {
+                                                    $is_marcin = ($user->user_login === 'marcindymek');
+                                                    if ($is_marcin) {
+                                                        $marcin_user_shown = true;
+                                                    }
+
+                                                    echo '<option value="' . esc_attr($user->ID) . '"' . ($is_marcin ? ' style="background: #e8f5e8;"' : '') . '>';
+                                                    echo esc_html($user->display_name) . ' (' . esc_html($user->user_login) . ') - ' . $media_count . ' mediów';
+                                                    if ($is_marcin) {
+                                                        echo ' [FALLBACK]';
+                                                    }
+                                                    echo '</option>';
+                                                }
+                                            }
+
+                                            // Dodaj opcję dla marcindymek jako fallback tylko jeśli nie został już pokazany
+                                            if (!$marcin_user_shown) {
+                                                $marcin_user = get_user_by('login', 'marcindymek');
+                                                if ($marcin_user) {
+                                                    $marcin_media_count = count_user_posts($marcin_user->ID, 'attachment');
+                                                    echo '<option value="' . esc_attr($marcin_user->ID) . '" style="background: #e8f5e8;">';
+                                                    echo esc_html($marcin_user->display_name) . ' (marcindymek) - ' . $marcin_media_count . ' mediów [FALLBACK]';
+                                                    echo '</option>';
+                                                }
+                                            }
+                                            ?>
+                                        </select>
+                                    </p>
+                                    <p class="description">
+                                        <?php _e('Zostaną usunięte TYLKO media związane z produktami WooCommerce (główne zdjęcia, galerie, załączniki) dodane przez wybranego użytkownika. Inne media (posty, strony) pozostają bezpieczne.', 'multi-hurtownie-integration'); ?>
+                                    </p>
+                                    <ul class="description" style="margin-left: 20px;">
+                                        <li><?php _e('✅ Główne zdjęcia produktów', 'multi-hurtownie-integration'); ?></li>
+                                        <li><?php _e('✅ Zdjęcia w galeriach produktów', 'multi-hurtownie-integration'); ?>
+                                        </li>
+                                        <li><?php _e('✅ Załączniki przypisane do produktów', 'multi-hurtownie-integration'); ?>
+                                        </li>
+                                        <li><?php _e('✅ Media zaimportowane przez plugin (z meta _mhi_source_url)', 'multi-hurtownie-integration'); ?>
+                                        </li>
+                                        <li style="color: #d63638;">
+                                            <?php _e('❌ Media w postach/stronach - pozostają nietknięte', 'multi-hurtownie-integration'); ?>
+                                        </li>
+                                    </ul>
+                                    <p style="margin-top: 15px;">
+                                        <button type="button" id="mhi-preview-user-media" class="button button-secondary">
+                                            <?php _e('🔍 Podgląd mediów do usunięcia', 'multi-hurtownie-integration'); ?>
+                                        </button>
+                                    </p>
+                                    <div id="mhi-media-preview"
+                                        style="display: none; margin-top: 15px; padding: 10px; background: #fff; border: 1px solid #ddd; border-radius: 5px;">
+                                        <!-- Tutaj będzie wyświetlany podgląd -->
+                                    </div>
+                                </div>
+                            </div>
+
                             <p>
                                 <label>
                                     <input type="checkbox" name="mhi_cleanup_all" value="1" id="mhi-cleanup-all">
@@ -168,19 +267,19 @@ $active_tab = isset($_GET['tab']) ? sanitize_text_field($_GET['tab']) : 'general
                             // Obsługa zaznaczenia "WSZYSTKO POWYŻEJ"
                             $('#mhi-cleanup-all').on('change', function () {
                                 if ($(this).is(':checked')) {
-                                    $('input[name^="mhi_cleanup_"]:not([name="mhi_cleanup_all"]):not([name="mhi_cleanup_confirm"])').prop('checked', true);
+                                    $('input[name^="mhi_cleanup_"]:not([name="mhi_cleanup_all"]):not([name="mhi_cleanup_confirm"]):not([name="mhi_cleanup_user_media"])').prop('checked', true);
                                 }
                             });
 
                             // Automatycznie odznacz "WSZYSTKO" jeśli któryś z pojedynczych checkboxów zostanie odznaczony
-                            $('input[name^="mhi_cleanup_"]:not([name="mhi_cleanup_all"]):not([name="mhi_cleanup_confirm"])').on('change', function () {
+                            $('input[name^="mhi_cleanup_"]:not([name="mhi_cleanup_all"]):not([name="mhi_cleanup_confirm"]):not([name="mhi_cleanup_user_media"])').on('change', function () {
                                 if (!$(this).is(':checked')) {
                                     $('#mhi-cleanup-all').prop('checked', false);
                                 }
 
                                 // Sprawdź czy wszystkie są zaznaczone i wtedy zaznacz "WSZYSTKO"
                                 var allChecked = true;
-                                $('input[name^="mhi_cleanup_"]:not([name="mhi_cleanup_all"]):not([name="mhi_cleanup_confirm"])').each(function () {
+                                $('input[name^="mhi_cleanup_"]:not([name="mhi_cleanup_all"]):not([name="mhi_cleanup_confirm"]):not([name="mhi_cleanup_user_media"])').each(function () {
                                     if (!$(this).is(':checked')) {
                                         allChecked = false;
                                         return false;
@@ -190,6 +289,84 @@ $active_tab = isset($_GET['tab']) ? sanitize_text_field($_GET['tab']) : 'general
                                 if (allChecked) {
                                     $('#mhi-cleanup-all').prop('checked', true);
                                 }
+                            });
+
+                            // Obsługa pokazywania/ukrywania sekcji wyboru użytkownika
+                            $('#mhi-cleanup-user-media').on('change', function () {
+                                if ($(this).is(':checked')) {
+                                    $('#mhi-user-selection').show();
+                                } else {
+                                    $('#mhi-user-selection').hide();
+                                    $('#mhi_cleanup_user_id').val('');
+                                    $('#mhi-media-preview').hide();
+                                }
+                            });
+
+                            // Obsługa podglądu mediów do usunięcia
+                            $('#mhi-preview-user-media').on('click', function () {
+                                var userId = $('#mhi_cleanup_user_id').val();
+                                if (!userId) {
+                                    alert('<?php echo esc_js(__('Najpierw wybierz użytkownika.', 'multi-hurtownie-integration')); ?>');
+                                    return;
+                                }
+
+                                var $button = $(this);
+                                var $preview = $('#mhi-media-preview');
+
+                                $button.prop('disabled', true).text('<?php echo esc_js(__('Ładowanie...', 'multi-hurtownie-integration')); ?>');
+
+                                // AJAX request do podglądu mediów
+                                $.post(ajaxurl, {
+                                    action: 'mhi_preview_user_media',
+                                    user_id: userId,
+                                    nonce: '<?php echo wp_create_nonce('mhi_preview_user_media'); ?>'
+                                }, function (response) {
+                                    if (response.success) {
+                                        var data = response.data;
+                                        var html = '<h4><?php echo esc_js(__('Podgląd mediów do usunięcia:', 'multi-hurtownie-integration')); ?></h4>';
+
+                                        if (data.total_count === 0) {
+                                            html += '<p style="color: #d63638;"><?php echo esc_js(__('Nie znaleziono mediów produktów dla tego użytkownika.', 'multi-hurtownie-integration')); ?></p>';
+                                        } else {
+                                            html += '<p><strong><?php echo esc_js(__('Łącznie do usunięcia:', 'multi-hurtownie-integration')); ?> ' + data.total_count + ' <?php echo esc_js(__('mediów', 'multi-hurtownie-integration')); ?></strong></p>';
+
+                                            html += '<div style="margin: 10px 0;">';
+                                            html += '<span style="margin-right: 15px;">📸 <?php echo esc_js(__('Główne zdjęcia:', 'multi-hurtownie-integration')); ?> ' + data.categories.featured_images + '</span>';
+                                            html += '<span style="margin-right: 15px;">🖼️ <?php echo esc_js(__('Galerie:', 'multi-hurtownie-integration')); ?> ' + data.categories.gallery_images + '</span>';
+                                            html += '<span style="margin-right: 15px;">📎 <?php echo esc_js(__('Załączniki:', 'multi-hurtownie-integration')); ?> ' + data.categories.attached_images + '</span>';
+                                            html += '<span>🔗 <?php echo esc_js(__('Zaimportowane:', 'multi-hurtownie-integration')); ?> ' + data.categories.mhi_imported + '</span>';
+                                            html += '</div>';
+
+                                            if (data.media_details.length > 0) {
+                                                html += '<div style="max-height: 300px; overflow-y: auto; border: 1px solid #ddd; padding: 10px; margin-top: 10px;">';
+                                                data.media_details.forEach(function (media) {
+                                                    html += '<div style="display: flex; align-items: center; margin-bottom: 10px; padding: 5px; border-bottom: 1px solid #eee;">';
+                                                    html += '<img src="' + media.url + '" style="width: 50px; height: 50px; object-fit: cover; margin-right: 10px;" />';
+                                                    html += '<div>';
+                                                    html += '<strong>' + media.title + '</strong><br>';
+                                                    html += '<small>ID: ' + media.id + ' | ' + media.file_size + ' | ' + media.mime_type + '</small><br>';
+                                                    html += '<small style="color: #666;">';
+                                                    if (media.is_featured) html += '📸 <?php echo esc_js(__('Główne', 'multi-hurtownie-integration')); ?> ';
+                                                    if (media.is_gallery) html += '🖼️ <?php echo esc_js(__('Galeria', 'multi-hurtownie-integration')); ?> ';
+                                                    if (media.is_attached) html += '📎 <?php echo esc_js(__('Załącznik', 'multi-hurtownie-integration')); ?> ';
+                                                    if (media.is_mhi_imported) html += '🔗 <?php echo esc_js(__('Import', 'multi-hurtownie-integration')); ?> ';
+                                                    html += '</small>';
+                                                    html += '</div>';
+                                                    html += '</div>';
+                                                });
+                                                html += '</div>';
+                                            }
+                                        }
+
+                                        $preview.html(html).show();
+                                    } else {
+                                        alert('<?php echo esc_js(__('Błąd podczas ładowania podglądu:', 'multi-hurtownie-integration')); ?> ' + (response.data || '<?php echo esc_js(__('Nieznany błąd', 'multi-hurtownie-integration')); ?>'));
+                                    }
+                                }).fail(function () {
+                                    alert('<?php echo esc_js(__('Błąd połączenia z serwerem.', 'multi-hurtownie-integration')); ?>');
+                                }).always(function () {
+                                    $button.prop('disabled', false).text('<?php echo esc_js(__('🔍 Podgląd mediów do usunięcia', 'multi-hurtownie-integration')); ?>');
+                                });
                             });
 
                             // Walidacja formularza
@@ -204,6 +381,13 @@ $active_tab = isset($_GET['tab']) ? sanitize_text_field($_GET['tab']) : 'general
 
                                 if (!atLeastOneChecked) {
                                     alert('<?php echo esc_js(__('Wybierz co najmniej jeden element do usunięcia.', 'multi-hurtownie-integration')); ?>');
+                                    e.preventDefault();
+                                    return false;
+                                }
+
+                                // Sprawdź czy wybrano usuwanie mediów użytkownika ale nie wybrano użytkownika
+                                if ($('#mhi-cleanup-user-media').is(':checked') && $('#mhi_cleanup_user_id').val() === '') {
+                                    alert('<?php echo esc_js(__('Wybierz użytkownika, którego media chcesz usunąć.', 'multi-hurtownie-integration')); ?>');
                                     e.preventDefault();
                                     return false;
                                 }

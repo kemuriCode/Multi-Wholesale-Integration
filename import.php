@@ -13,6 +13,7 @@
  * - test_xml=1 (użyj test_gallery.xml zamiast głównego pliku)
  * - test_gallery=ID_PRODUKTU (testuj galerię konkretnego produktu)
  * - fix_gallery=ID_PRODUKTU (napraw galerię produktu z istniejących załączników)
+ * - generate_variations=0 (wyłącz automatyczne generowanie wariantów, domyślnie włączone)
  * 
  * Funkcjonalność galerii:
  * ✅ Pierwszy obraz z XML staje się głównym zdjęciem produktu
@@ -29,6 +30,13 @@
  * ✅ Tworzenie taksonomii marek jeśli nie istnieje
  * ✅ Przypisywanie marek do produktów z weryfikacją
  * ✅ Backup: sprawdzanie bezpośrednich pól XML (brand, manufacturer)
+ * 
+ * Funkcjonalność wariantów:
+ * ✅ Automatyczne wykrywanie produktów z wariantami (type="variable" lub atrybuty z variation="yes")
+ * ✅ Generowanie wszystkich kombinacji wariantów na podstawie atrybutów
+ * ✅ Kopiowanie wszystkich parametrów z produktu głównego (ceny, wymiary, stan magazynowy)
+ * ✅ Aktualizacja istniejących wariantów przy ponownym imporcie
+ * ✅ Synchronizacja wariantów z produktem głównym
  */
 
 declare(strict_types=1);
@@ -84,7 +92,9 @@ if (!file_exists($xml_file)) {
     <meta charset="UTF-8">
     <meta name="viewport" conten t="width=device-width, initial-scale=
     1.0">
-    <title>🚀 IMPORT PRODUKTÓW - <?php echo strtoupper($supplier); ?></title>
+    <title>🚀 IMPORT PRODUKTÓW -
+        <?php echo strtoupper($supplier); ?>
+    </title>
     <style>
         * {
             box-sizing: border-box;
@@ -289,7 +299,9 @@ if (!file_exists($xml_file)) {
     <div class="container">
 
 
-        <h1>🚀 IMPORT PRODUKTÓW - <?php echo strtoupper($supplier); ?></h1>
+        <h1>🚀 IMPORT PRODUKTÓW -
+            <?php echo strtoupper($supplier); ?>
+        </h1>
 
         <div class="current-product" id="currentProduct" style="display: none;">
             <div class="current-product-name" id="currentProductName">Przygotowywanie...</div>
@@ -444,12 +456,70 @@ if (!file_exists($xml_file)) {
             $product_id = wc_get_product_id_by_sku($sku);
             $is_update = (bool) $product_id;
 
+            // WYKRYJ CZY PRODUKT MA WARIANTY
+            $has_variations = false;
+            $product_type = 'simple'; // domyślnie prosty produkt
+    
+            // Sprawdź pole <type> w XML
+            if (isset($product_xml->type)) {
+                $xml_type = trim((string) $product_xml->type);
+                if ($xml_type === 'variable') {
+                    $has_variations = true;
+                    $product_type = 'variable';
+                    addLog("🔄 XML określa typ produktu jako: variable", "info");
+                }
+            }
+
+            // Sprawdź atrybuty z variation="yes" jako backup
+            if (!$has_variations && isset($product_xml->attributes) && isset($product_xml->attributes->attribute)) {
+                $variation_attributes_count = 0;
+                foreach ($product_xml->attributes->attribute as $attribute_xml) {
+                    $variation_flag = trim((string) $attribute_xml->variation);
+                    if ($variation_flag === 'yes' || $variation_flag === '1') {
+                        $variation_attributes_count++;
+                        if (!$has_variations) {
+                            $has_variations = true;
+                            $product_type = 'variable';
+                            addLog("🔄 Wykryto atrybut z variation='yes' - ustawiam typ na variable", "info");
+                        }
+                    }
+                }
+                if ($variation_attributes_count > 0) {
+                    addLog("📊 Znaleziono {$variation_attributes_count} atrybutów oznaczonych jako variation", "info");
+                }
+            }
+
+            if ($has_variations) {
+                addLog("🎯 Produkt zostanie utworzony jako VARIABLE z możliwością automatycznego generowania wariantów", "success");
+            } else {
+                addLog("📦 Produkt zostanie utworzony jako SIMPLE (brak atrybutów variation)", "info");
+            }
+
             if ($is_update) {
                 $product = wc_get_product($product_id);
-                addLog("📝 Aktualizacja istniejącego produktu ID: {$product_id}");
+                addLog("📝 Aktualizacja istniejącego produktu ID: {$product_id} (typ: {$product_type})");
+
+                // Sprawdź czy trzeba zmienić typ produktu
+                if ($product && $has_variations && $product->get_type() !== 'variable') {
+                    addLog("🔄 Zmieniam typ produktu z " . $product->get_type() . " na variable", "warning");
+                    // Konwertuj na variable product
+                    wp_set_object_terms($product_id, 'variable', 'product_type');
+                    $product = wc_get_product($product_id); // Przeładuj produkt
+                }
             } else {
-                $product = new WC_Product();
-                addLog("➕ Tworzenie nowego produktu");
+                // Utwórz odpowiedni typ produktu
+                if ($has_variations) {
+                    if (class_exists('WC_Product_Variable')) {
+                        $product = new WC_Product_Variable();
+                        addLog("➕ Tworzenie nowego produktu z wariantami (WC_Product_Variable)");
+                    } else {
+                        $product = new WC_Product();
+                        addLog("⚠️ WC_Product_Variable niedostępne - używam WC_Product", "warning");
+                    }
+                } else {
+                    $product = new WC_Product();
+                    addLog("➕ Tworzenie nowego prostego produktu (WC_Product)");
+                }
             }
 
             // USTAWIANIE PODSTAWOWYCH DANYCH
@@ -627,13 +697,24 @@ if (!file_exists($xml_file)) {
 
                     // Utwórz atrybut WooCommerce i zachowaj informacje o terminach
                     if (!empty($term_ids)) {
+                        // SPRAWDŹ CZY ATRYBUT MA BYĆ UŻYWANY DO WARIANTÓW
+                        $is_variation_attribute = false;
+                        if (isset($attribute_xml->variation)) {
+                            $variation_flag = trim((string) $attribute_xml->variation);
+                            $is_variation_attribute = ($variation_flag === 'yes' || $variation_flag === '1');
+                        }
+
                         $wc_attribute = new WC_Product_Attribute();
                         $wc_attribute->set_id($attribute_id); // Ustaw ID atrybutu globalnego
                         $wc_attribute->set_name($taxonomy); // Dla atrybutów globalnych używaj nazwy taksonomii
                         $wc_attribute->set_options($term_ids);
                         $wc_attribute->set_visible(true);
-                        $wc_attribute->set_variation(false);
+                        $wc_attribute->set_variation($is_variation_attribute); // ✅ USTAWIENIE DLA WARIANTÓW
                         $wc_attributes[] = $wc_attribute;
+
+                        if ($is_variation_attribute) {
+                            addLog("  🔄 Atrybut '{$attr_name}' oznaczony jako dla wariantów", "success");
+                        }
 
                         // Zachowaj informacje o terminach do przypisania po zapisaniu produktu
                         $attributes_to_assign[] = [
@@ -893,6 +974,36 @@ if (!file_exists($xml_file)) {
                 addLog("ℹ️ Brak sekcji <meta_data> w XML", "info");
             }
 
+            // GENEROWANIE WARIANTÓW - nowa funkcjonalność!
+            // Sprawdź czy generowanie wariantów jest włączone (domyślnie TAK)
+            $generate_variations = !isset($_GET['generate_variations']) || $_GET['generate_variations'] !== '0';
+
+            if ($has_variations && !empty($wc_attributes) && $generate_variations) {
+                addLog("🔄 Rozpoczynam generowanie wariantów dla produktu z wariantami...", "info");
+
+                // Sprawdź które atrybuty są oznaczone jako variation
+                $variation_attributes = [];
+                foreach ($wc_attributes as $wc_attr) {
+                    if ($wc_attr->get_variation()) {
+                        $variation_attributes[] = $wc_attr;
+                        addLog("  🔄 Atrybut dla wariantów: " . $wc_attr->get_name() . " z " . count($wc_attr->get_options()) . " opcjami", "info");
+                    }
+                }
+
+                if (!empty($variation_attributes)) {
+                    $variations_result = generate_product_variations($final_product_id, $variation_attributes, $product_xml);
+                    if ($variations_result['success']) {
+                        addLog("✅ " . $variations_result['message'], "success");
+                    } else {
+                        addLog("⚠️ " . $variations_result['message'], "warning");
+                    }
+                } else {
+                    addLog("ℹ️ Brak atrybutów oznaczonych jako variation - pomijam generowanie wariantów", "info");
+                }
+            } elseif ($has_variations && !$generate_variations) {
+                addLog("ℹ️ Generowanie wariantów wyłączone parametrem generate_variations=0", "info");
+            }
+
             // Oznacz jako importowany
             update_post_meta($final_product_id, '_mhi_imported', 'yes');
             update_post_meta($final_product_id, '_mhi_supplier', $supplier);
@@ -941,6 +1052,225 @@ if (!file_exists($xml_file)) {
 
     // FUNKCJE POMOCNICZE
     
+    /**
+     * Generuje warianty produktu na podstawie atrybutów variation
+     * Wszystkie warianty będą miały takie same parametry jak produkt główny
+     * 
+     * @param int $product_id ID produktu głównego
+     * @param array $variation_attributes Atrybuty oznaczone jako variation
+     * @param SimpleXMLElement $product_xml XML produktu z danymi
+     * @return array Wynik operacji
+     */
+    function generate_product_variations($product_id, $variation_attributes, $product_xml)
+    {
+        try {
+            $product = wc_get_product($product_id);
+            if (!$product || $product->get_type() !== 'variable') {
+                return ['success' => false, 'message' => 'Produkt nie jest typu variable'];
+            }
+
+            addLog("🔧 Generowanie wariantów dla produktu ID: {$product_id}", "info");
+
+            // Pobierz dane z XML do skopiowania do wariantów
+            $base_data = [
+                'regular_price' => trim((string) $product_xml->regular_price),
+                'sale_price' => trim((string) $product_xml->sale_price),
+                'weight' => trim((string) $product_xml->weight),
+                'length' => trim((string) $product_xml->length),
+                'width' => trim((string) $product_xml->width),
+                'height' => trim((string) $product_xml->height),
+                'stock_quantity' => trim((string) $product_xml->stock_quantity),
+                'description' => trim((string) $product_xml->description),
+                'short_description' => trim((string) $product_xml->short_description)
+            ];
+
+            // Przygotuj kombinacje atrybutów
+            $attribute_combinations = [];
+            foreach ($variation_attributes as $attr) {
+                $taxonomy = $attr->get_name();
+                $term_ids = $attr->get_options();
+
+                $terms = [];
+                foreach ($term_ids as $term_id) {
+                    $term = get_term($term_id);
+                    if ($term && !is_wp_error($term)) {
+                        $terms[] = $term->slug;
+                    }
+                }
+
+                if (!empty($terms)) {
+                    $attribute_combinations[$taxonomy] = $terms;
+                    addLog("  📋 Atrybut {$taxonomy}: " . implode(', ', $terms), "info");
+                }
+            }
+
+            if (empty($attribute_combinations)) {
+                return ['success' => false, 'message' => 'Brak kombinacji atrybutów do wygenerowania'];
+            }
+
+            // Wygeneruj wszystkie możliwe kombinacje
+            $combinations = generate_attribute_combinations($attribute_combinations);
+            addLog("🔢 Wygenerowano " . count($combinations) . " kombinacji wariantów", "info");
+
+            $created_variations = 0;
+            $updated_variations = 0;
+
+            foreach ($combinations as $combination) {
+                // Sprawdź czy wariant już istnieje
+                $existing_variation_id = find_matching_variation($product_id, $combination);
+
+                if ($existing_variation_id) {
+                    // Aktualizuj istniejący wariant
+                    $variation = wc_get_product($existing_variation_id);
+                    addLog("  📝 Aktualizuję istniejący wariant ID: {$existing_variation_id}", "info");
+                    $updated_variations++;
+                } else {
+                    // Utwórz nowy wariant
+                    $variation = new WC_Product_Variation();
+                    $variation->set_parent_id($product_id);
+                    addLog("  ➕ Tworzę nowy wariant", "info");
+                    $created_variations++;
+                }
+
+                // Ustaw atrybuty wariantu
+                $variation->set_attributes($combination);
+
+                // Skopiuj wszystkie dane z produktu głównego
+                if (!empty($base_data['regular_price']) && is_numeric(str_replace(',', '.', $base_data['regular_price']))) {
+                    $variation->set_regular_price(str_replace(',', '.', $base_data['regular_price']));
+                }
+
+                if (!empty($base_data['sale_price']) && is_numeric(str_replace(',', '.', $base_data['sale_price']))) {
+                    $variation->set_sale_price(str_replace(',', '.', $base_data['sale_price']));
+                }
+
+                if (!empty($base_data['weight'])) {
+                    $variation->set_weight($base_data['weight']);
+                }
+
+                if (!empty($base_data['length'])) {
+                    $variation->set_length($base_data['length']);
+                }
+
+                if (!empty($base_data['width'])) {
+                    $variation->set_width($base_data['width']);
+                }
+
+                if (!empty($base_data['height'])) {
+                    $variation->set_height($base_data['height']);
+                }
+
+                // Zarządzanie stanem magazynowym
+                if (!empty($base_data['stock_quantity']) && is_numeric($base_data['stock_quantity'])) {
+                    $variation->set_manage_stock(true);
+                    $variation->set_stock_quantity((int) $base_data['stock_quantity']);
+                    $variation->set_stock_status('instock');
+                } else {
+                    $variation->set_manage_stock(false);
+                    $variation->set_stock_status('instock');
+                }
+
+                // Ustaw status
+                $variation->set_status('publish');
+
+                // Zapisz wariant
+                $variation_id = $variation->save();
+
+                if ($variation_id) {
+                    // Dodaj meta dane
+                    update_post_meta($variation_id, '_mhi_imported', 'yes');
+                    update_post_meta($variation_id, '_mhi_supplier', $_GET['supplier']);
+                    update_post_meta($variation_id, '_mhi_import_date', current_time('mysql'));
+
+                    $combination_text = [];
+                    foreach ($combination as $attr => $value) {
+                        $combination_text[] = str_replace('pa_', '', $attr) . ': ' . $value;
+                    }
+                    addLog("    ✅ Wariant: " . implode(', ', $combination_text), "success");
+                } else {
+                    addLog("    ❌ Błąd zapisywania wariantu", "error");
+                }
+            }
+
+            // Synchronizuj warianty z produktem głównym
+            WC_Product_Variable::sync($product_id);
+
+            $total_variations = $created_variations + $updated_variations;
+            $message = "Wygenerowano warianty: {$created_variations} nowych, {$updated_variations} zaktualizowanych (łącznie: {$total_variations})";
+
+            return ['success' => true, 'message' => $message];
+
+        } catch (Exception $e) {
+            return ['success' => false, 'message' => 'Błąd generowania wariantów: ' . $e->getMessage()];
+        }
+    }
+
+    /**
+     * Generuje wszystkie możliwe kombinacje atrybutów
+     * 
+     * @param array $attributes Tablica atrybutów [taxonomy => [values]]
+     * @return array Kombinacje atrybutów
+     */
+    function generate_attribute_combinations($attributes)
+    {
+        $combinations = [[]];
+
+        foreach ($attributes as $taxonomy => $values) {
+            $new_combinations = [];
+            foreach ($combinations as $combination) {
+                foreach ($values as $value) {
+                    $new_combination = $combination;
+                    $new_combination[$taxonomy] = $value;
+                    $new_combinations[] = $new_combination;
+                }
+            }
+            $combinations = $new_combinations;
+        }
+
+        return $combinations;
+    }
+
+    /**
+     * Znajduje istniejący wariant o podanych atrybutach
+     * 
+     * @param int $product_id ID produktu głównego
+     * @param array $attributes Atrybuty do wyszukania
+     * @return int|false ID wariantu lub false jeśli nie znaleziono
+     */
+    function find_matching_variation($product_id, $attributes)
+    {
+        $product = wc_get_product($product_id);
+        if (!$product || $product->get_type() !== 'variable') {
+            return false;
+        }
+
+        $variations = $product->get_children();
+
+        foreach ($variations as $variation_id) {
+            $variation = wc_get_product($variation_id);
+            if (!$variation)
+                continue;
+
+            $variation_attributes = $variation->get_attributes();
+
+            // Sprawdź czy wszystkie atrybuty się zgadzają
+            $match = true;
+            foreach ($attributes as $taxonomy => $value) {
+                $variation_value = isset($variation_attributes[$taxonomy]) ? $variation_attributes[$taxonomy] : '';
+                if ($variation_value !== $value) {
+                    $match = false;
+                    break;
+                }
+            }
+
+            if ($match) {
+                return $variation_id;
+            }
+        }
+
+        return false;
+    }
+
     function addLog($message, $type = "info")
     {
         echo '<script>addLog(' . json_encode($message) . ', "' . $type . '");</script>';
