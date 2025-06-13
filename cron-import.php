@@ -450,10 +450,61 @@ $start_time = microtime(true);
     if ($auto_continue) {
         $next_offset = $offset + $batch_size;
         $products_to_process = $max_products > 0 ? $max_products : $total;
+        $current_processed = $offset + $stats['processed'];
 
-        if ($next_offset < $products_to_process && $next_offset < $total) {
+        // Sprawdź różne warunki zakończenia
+        $no_more_products = $next_offset >= $total;
+        $reached_limit = $max_products > 0 && $current_processed >= $max_products;
+        $no_success_in_batch = $stats['success'] == 0 && $stats['processed'] > 0;
+
+        if ($no_more_products || $reached_limit || $no_success_in_batch) {
+            // ZAKOŃCZENIE AUTO-CONTINUE
+            addLog("🎉 AUTO-CONTINUE ZAKOŃCZONY!", "success");
+
+            if ($no_more_products) {
+                addLog("✅ Przyczyna: Wszystkie produkty z XML zostały przetworzone", "success");
+                addLog("📊 Przetworzono: {$current_processed}/{$total} produktów z XML", "info");
+            } elseif ($reached_limit) {
+                addLog("🎯 Przyczyna: Osiągnięto limit {$max_products} produktów", "success");
+                addLog("📊 Przetworzono: {$current_processed}/{$max_products} (limit) z {$total} dostępnych", "info");
+            } elseif ($no_success_in_batch) {
+                addLog("⏭️ Przyczyna: Wszystkie produkty już przetworzone (tylko pominięcia)", "info");
+                addLog("📊 Stage {$stage} ukończony dla wszystkich dostępnych produktów", "info");
+            }
+
+            // Podsumowanie końcowe
+            addLog("🏁 PODSUMOWANIE KOŃCOWE AUTO-CONTINUE:", "success");
+            addLog("   📦 Hurtownia: " . strtoupper($supplier), "info");
+            addLog("   🎯 Stage: {$stage}", "info");
+            addLog("   📊 Łącznie przetworzono: {$current_processed} produktów", "info");
+            addLog("   ⏱️ Łączny czas: " . round($duration, 1) . "s", "info");
+
+            // Sugestie następnego kroku
+            if ($stage < 3) {
+                $next_stage = $stage + 1;
+                addLog("💡 Sugestia: Przejdź do Stage {$next_stage}", "warning");
+                echo '<script>
+                    setTimeout(function() {
+                        if (confirm("Auto-continue zakończony!\\n\\nCzy chcesz przejść do Stage ' . $next_stage . '?")) {
+                            var nextUrl = "?supplier=' . $supplier . '&stage=' . $next_stage . '&batch_size=' . $batch_size . '&auto_continue=1";
+                            ' . ($max_products > 0 ? 'nextUrl += "&max_products=' . $max_products . '";' : '') . '
+                            window.location.href = nextUrl;
+                        }
+                    }, 3000);
+                </script>';
+            } else {
+                addLog("🎉 WSZYSTKIE STAGE'Y UKOŃCZONE! Import produktów zakończony.", "success");
+                echo '<script>
+                    setTimeout(function() {
+                        addLog("🔗 Możesz teraz wrócić do managera cronów", "info");
+                    }, 2000);
+                </script>';
+            }
+        } else {
+            // KONTYNUACJA
             $remaining = min($products_to_process - $next_offset, $total - $next_offset);
             addLog("🔄 Auto-continue: Pozostało {$remaining} produktów", "info");
+            addLog("📊 Postęp: {$current_processed}/{$products_to_process} (" . round(($current_processed / $products_to_process) * 100, 1) . "%)", "info");
             addLog("⏳ Przekierowanie za 5 sekund do następnego batch'a...", "warning");
 
             $next_url = "?supplier={$supplier}&stage={$stage}&batch_size={$batch_size}&offset={$next_offset}&auto_continue=1";
@@ -463,13 +514,10 @@ $start_time = microtime(true);
 
             echo '<script>
                 setTimeout(function() {
-                    addLog("🚀 Przekierowanie do następnego batch\'a...", "info");
+                    addLog("🚀 Przekierowanie do batch\'a " + Math.ceil(' . $next_offset . '/' . $batch_size . ') + "...", "info");
                     window.location.href = "' . $next_url . '";
                 }, 5000);
             </script>';
-        } else {
-            addLog("🎉 AUTO-CONTINUE ZAKOŃCZONY - wszystkie produkty przetworzone!", "success");
-            addLog("📊 Łącznie przetworzono: " . min($next_offset, $products_to_process) . " produktów", "info");
         }
     }
 

@@ -148,6 +148,7 @@ echo "⏱️ Czas wykonania: {$duration}s\n";
  */
 function run_stage_with_auto_continue($supplier, $stage, $batch_size, $xml_file, $max_products = 0)
 {
+    $start_time = microtime(true);
     echo "🔄 Auto-continue: Uruchamiam wszystkie batch'e dla Stage $stage\n";
 
     // Załaduj XML żeby sprawdzić całkowitą liczbę produktów
@@ -188,7 +189,15 @@ function run_stage_with_auto_continue($supplier, $stage, $batch_size, $xml_file,
         $current_offset += $current_batch_size;
 
         echo "✅ Batch $batch_number: {$batch_stats['success']} ✅ | {$batch_stats['failed']} ❌ | {$batch_stats['skipped']} ⏭️\n";
-        echo "📊 Postęp: $processed_total/$products_to_process (" . round(($processed_total / $products_to_process) * 100, 1) . "%)\n\n";
+        echo "📊 Postęp: $processed_total/$products_to_process (" . round(($processed_total / $products_to_process) * 100, 1) . "%)\n";
+
+        // Sprawdź warunki wcześniejszego zakończenia
+        $all_skipped = $batch_stats['success'] == 0 && $batch_stats['skipped'] > 0 && $batch_stats['failed'] == 0;
+        if ($all_skipped) {
+            echo "⏭️ Wszystkie produkty w batch'u zostały pominięte - prawdopodobnie już przetworzone\n";
+            echo "🏁 Wcześniejsze zakończenie - Stage $stage ukończony dla dostępnych produktów\n";
+            break;
+        }
 
         $batch_number++;
 
@@ -196,12 +205,48 @@ function run_stage_with_auto_continue($supplier, $stage, $batch_size, $xml_file,
         if ($current_offset < $products_to_process) {
             echo "⏳ Przerwa 3 sekundy przed kolejnym batch'em...\n\n";
             sleep(3);
+        } else {
+            echo "\n";
         }
     }
 
-    echo "🎉 AUTO-CONTINUE ZAKOŃCZONY dla Stage $stage!\n";
-    echo "📈 ŁĄCZNE STATYSTYKI: {$total_stats['success']} ✅ | {$total_stats['failed']} ❌ | {$total_stats['skipped']} ⏭️\n";
-    echo "📊 Przetworzono: $processed_total/$total_products produktów\n\n";
+    $end_time = microtime(true);
+    $total_duration = round($end_time - $start_time, 2);
+
+    echo "🎉 === AUTO-CONTINUE ZAKOŃCZONY ===\n";
+
+    // Określ przyczynę zakończenia
+    if ($current_offset >= $products_to_process) {
+        if ($max_products > 0 && $products_to_process == $max_products) {
+            echo "🎯 Przyczyna: Osiągnięto limit $max_products produktów\n";
+        } else {
+            echo "✅ Przyczyna: Wszystkie produkty z XML zostały przetworzone\n";
+        }
+    } else {
+        echo "⏭️ Przyczyna: Wszystkie produkty już przetworzone (tylko pominięcia)\n";
+    }
+
+    echo "📊 Łączne statystyki:\n";
+    echo "   📦 Hurtownia: " . strtoupper($supplier) . "\n";
+    echo "   🎯 Stage: $stage\n";
+    echo "   ✅ Sukces: {$total_stats['success']}\n";
+    echo "   ❌ Błędy: {$total_stats['failed']}\n";
+    echo "   ⏭️ Pominięte: {$total_stats['skipped']}\n";
+    echo "   📦 Przetworzono: $processed_total produktów\n";
+    echo "   🔢 Batch'e: " . ($batch_number - 1) . "\n";
+    echo "   ⏱️ Łączny czas: {$total_duration}s\n";
+
+    // Sugestie następnego kroku
+    if ($stage < 3) {
+        $next_stage = $stage + 1;
+        echo "💡 Sugestia: Uruchom teraz Stage $next_stage\n";
+        echo "   Komenda: php run-cron.php --supplier=$supplier --stage=$next_stage --auto-continue --batch=$batch_size" . ($max_products > 0 ? " --max-products=$max_products" : "") . "\n";
+    } else {
+        echo "🎉 WSZYSTKIE STAGE'Y UKOŃCZONE! Import produktów zakończony.\n";
+        echo "🔗 Możesz teraz sprawdzić produkty w WooCommerce.\n";
+    }
+
+    echo "\n";
 
     return $total_stats;
 }
