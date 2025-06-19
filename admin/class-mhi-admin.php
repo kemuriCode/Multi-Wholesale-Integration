@@ -100,6 +100,7 @@ class MHI_Admin
         $this->register_par_settings();
         $this->register_inspirion_settings();
         $this->register_macma_settings();
+        $this->register_anda_settings();
     }
 
     /**
@@ -427,6 +428,81 @@ class MHI_Admin
                     'type' => $field['type'],
                     'default' => isset($field['default']) ? $field['default'] : '',
                     'description' => isset($field['description']) ? $field['description'] : ''
+                )
+            );
+        }
+    }
+
+    /**
+     * Rejestruje ustawienia dla ANDA (Hurtownia 6)
+     */
+    private function register_anda_settings()
+    {
+        add_settings_section(
+            'mhi_hurtownia_6_settings',
+            __('Ustawienia ANDA', 'multi-hurtownie-integration'),
+            function () {
+                echo '<p>' . __('Integracja z hurtownią ANDA przez XML API i FTP.', 'multi-hurtownie-integration') . '</p>';
+            },
+            'multi-hurtownie-integration-anda'
+        );
+
+        $fields = array(
+            'mhi_hurtownia_6_enabled' => array(
+                'title' => __('Włączona', 'multi-hurtownie-integration'),
+                'type' => 'checkbox'
+            ),
+            'mhi_hurtownia_6_interval' => array(
+                'title' => __('Interwał aktualizacji', 'multi-hurtownie-integration'),
+                'type' => 'select'
+            ),
+            'mhi_hurtownia_6_api_url' => array(
+                'title' => __('URL API XML', 'multi-hurtownie-integration'),
+                'type' => 'text',
+                'default' => 'https://xml.andapresent.com/export/',
+                'description' => __('Bazowy URL do API XML ANDA.', 'multi-hurtownie-integration')
+            ),
+            'mhi_hurtownia_6_api_token' => array(
+                'title' => __('Token autoryzacyjny', 'multi-hurtownie-integration'),
+                'type' => 'password',
+                'default' => 'DIRDFMUWNB5T2AQJEQ8F2GRIBHT6KJ8VHKLDV4NH76ND4JJQT8UHIFKEJVK2IE7X',
+                'description' => __('Token dostępu do API ANDA.', 'multi-hurtownie-integration')
+            ),
+            'mhi_hurtownia_6_ftp_server' => array(
+                'title' => __('Serwer FTP zdjęć', 'multi-hurtownie-integration'),
+                'type' => 'text',
+                'default' => '82.131.166.34',
+                'description' => __('Adres serwera FTP dla zdjęć produktów.', 'multi-hurtownie-integration')
+            ),
+            'mhi_hurtownia_6_ftp_username' => array(
+                'title' => __('Login FTP', 'multi-hurtownie-integration'),
+                'type' => 'text',
+                'default' => 'public',
+                'description' => __('Nazwa użytkownika FTP.', 'multi-hurtownie-integration')
+            ),
+            'mhi_hurtownia_6_ftp_password' => array(
+                'title' => __('Hasło FTP', 'multi-hurtownie-integration'),
+                'type' => 'password',
+                'default' => 'andapresent',
+                'description' => __('Hasło dostępu do FTP.', 'multi-hurtownie-integration')
+            )
+        );
+
+        foreach ($fields as $id => $field) {
+            register_setting('mhi_hurtownia_6_settings', $id);
+            add_settings_field(
+                $id,
+                $field['title'],
+                array($this, 'field_callback'),
+                'multi-hurtownie-integration-anda',
+                'mhi_hurtownia_6_settings',
+                array(
+                    'id' => $id,
+                    'label_for' => $id,
+                    'type' => $field['type'],
+                    'default' => isset($field['default']) ? $field['default'] : '',
+                    'description' => isset($field['description']) ? $field['description'] : '',
+                    'options' => isset($field['options']) ? $field['options'] : array()
                 )
             );
         }

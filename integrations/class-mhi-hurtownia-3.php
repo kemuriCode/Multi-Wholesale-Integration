@@ -1,6 +1,6 @@
 <?php
 /**
- * Klasa integracji z hurtownią Macma.
+ * Klasa integracji z hurtownią PAR (API).
  *
  * @package MHI
  */
@@ -12,161 +12,287 @@ if (!defined('ABSPATH')) {
 /**
  * Klasa MHI_Hurtownia_3
  * 
- * Klasa odpowiedzialna za integrację z hurtownią Macma.
+ * Obsługuje integrację z hurtownią PAR przez API.
+ * Klasa przepisana na nowo z zaawansowanymi funkcjami pobierania i diagnostyki.
  */
 class MHI_Hurtownia_3 implements MHI_Integration_Interface
 {
     /**
-     * Nazwa hurtowni.
+     * Nazwa integracji.
      *
      * @var string
      */
-    protected $name = 'macma';
+    private $name = 'par';
 
     /**
-     * Konfiguracja integracji.
-     * 
+     * Dane konfiguracyjne.
+     *
      * @var array
      */
-    protected $config = [];
+    private $config;
 
     /**
      * Konstruktor klasy.
      */
     public function __construct()
     {
-        $this->load_config();
+        // Inicjalizacja konfiguracji - PAR API
+        $this->config = array(
+            'api_base_url' => 'https://www.par.com.pl/api/',
+            'api_username' => get_option('mhi_hurtownia_3_api_username', 'dmurawski@promo-mix.pl'),
+            'api_password' => get_option('mhi_hurtownia_3_api_password', '#Reklamy!1'),
+            'endpoints' => array(
+                'products' => 'products',
+                'categories' => 'categories',
+                'stocks' => 'stocks'  // technics - brak uprawnień (403)
+            ),
+            'enabled' => get_option('mhi_hurtownia_3_enabled', 1),
+        );
     }
 
     /**
-     * Ładuje konfigurację integracji z opcji WordPress.
-     */
-    protected function load_config()
-    {
-        $this->config = get_option('mhi_hurtownia_3_settings', []);
-    }
-
-    /**
-     * Nawiązuje połączenie z zewnętrznym źródłem danych
+     * Nawiązuje połączenie z hurtownią przez API.
      *
-     * @return bool Informacja czy połączenie zostało nawiązane
+     * @return bool True jeśli połączenie zostało ustanowione, false w przeciwnym razie.
      */
     public function connect()
     {
-        if (empty($this->config)) {
-            MHI_Logger::error('Brak konfiguracji dla hurtowni: ' . $this->name);
+        // Sprawdź, czy hurtownia jest włączona
+        if (!$this->config['enabled']) {
+            if (class_exists('MHI_Logger')) {
+                MHI_Logger::info('Hurtownia PAR jest wyłączona.');
+            }
             return false;
         }
 
-        $host = isset($this->config['ftp_host']) ? $this->config['ftp_host'] : '';
-        $port = isset($this->config['ftp_port']) ? intval($this->config['ftp_port']) : 21;
-        $user = isset($this->config['ftp_user']) ? $this->config['ftp_user'] : '';
-        $pass = isset($this->config['ftp_pass']) ? $this->config['ftp_pass'] : '';
-
-        if (empty($host) || empty($user) || empty($pass)) {
-            MHI_Logger::error('Brak kompletnych danych FTP dla hurtowni: ' . $this->name);
+        // Sprawdź, czy dane są poprawne
+        if (!$this->validate_credentials()) {
+            if (class_exists('MHI_Logger')) {
+                MHI_Logger::error('Nieprawidłowe dane uwierzytelniające dla PAR');
+                MHI_Logger::error('Username: ' . ($this->config['api_username'] ? 'USTAWIONE' : 'BRAK'));
+                MHI_Logger::error('Password: ' . ($this->config['api_password'] ? 'USTAWIONE' : 'BRAK'));
+            }
             return false;
         }
 
-        // Sprawdź połączenie
-        $conn_id = @ftp_connect($host, $port);
-        if (!$conn_id) {
-            MHI_Logger::error('Nie udało się połączyć z serwerem FTP: ' . $host . ':' . $port);
+        // Test połączenia z API - użyj szybkiego endpointu categories
+        $test_url = 'https://www.par.com.pl/api/categories';
+
+        if (class_exists('MHI_Logger')) {
+            MHI_Logger::info('PAR - Test połączenia: ' . $test_url);
+            MHI_Logger::info('PAR - Username: ' . $this->config['api_username']);
+        }
+
+        $args = array(
+            'timeout' => 30,
+            'sslverify' => false,
+            'headers' => array(
+                'Authorization' => 'Basic ' . base64_encode($this->config['api_username'] . ':' . $this->config['api_password']),
+                'Accept' => 'application/xml',
+                'User-Agent' => 'WordPress/' . get_bloginfo('version') . '; ' . get_bloginfo('url'),
+            ),
+        );
+
+        $response = wp_remote_get($test_url, $args);
+
+        if (is_wp_error($response)) {
+            if (class_exists('MHI_Logger')) {
+                MHI_Logger::error('PAR - Błąd HTTP: ' . $response->get_error_message());
+            }
             return false;
         }
 
-        // Logowanie
-        $login_result = @ftp_login($conn_id, $user, $pass);
-        if (!$login_result) {
-            MHI_Logger::error('Nie udało się zalogować do serwera FTP. Użytkownik: ' . $user);
-            ftp_close($conn_id);
+        $http_code = wp_remote_retrieve_response_code($response);
+        if ($http_code === 200) {
+            if (class_exists('MHI_Logger')) {
+                MHI_Logger::info('PAR - ✅ Połączenie z API działa!');
+            }
+            return true;
+        } else {
+            if (class_exists('MHI_Logger')) {
+                MHI_Logger::error('PAR - Nieprawidłowa odpowiedź API. Kod HTTP: ' . $http_code);
+                if ($http_code === 401) {
+                    MHI_Logger::error('PAR - Błąd uwierzytelniania (401) - sprawdź login i hasło');
+                } elseif ($http_code === 403) {
+                    MHI_Logger::error('PAR - Brak uprawnień (403) - sprawdź uprawnienia konta');
+                }
+                $response_body = wp_remote_retrieve_body($response);
+                MHI_Logger::error('PAR - Treść odpowiedzi: ' . substr($response_body, 0, 200));
+            }
             return false;
         }
-
-        // Zamknij połączenie
-        ftp_close($conn_id);
-
-        return true;
     }
 
+
+
     /**
-     * Pobiera pliki z zewnętrznego źródła
+     * Pobiera pliki z hurtowni przez API PAR.
      *
-     * @return mixed Wynik operacji pobierania plików
+     * @return array Tablica z informacjami o pobranych plikach.
      */
     public function fetch_files()
     {
-        return $this->fetch_data();
-    }
+        $files = array();
+        $upload_dir = wp_upload_dir();
+        $target_dir = trailingslashit($upload_dir['basedir']) . 'wholesale/' . $this->name;
 
-    /**
-     * Pobiera dane z serwera FTP i zapisuje je lokalnie.
-     * 
-     * @return bool Zwraca true jeśli dane zostały pobrane pomyślnie, false w przypadku błędu.
-     */
-    public function fetch_data()
-    {
-        if (empty($this->config)) {
-            MHI_Logger::error('Brak konfiguracji dla hurtowni: ' . $this->name);
-            return false;
-        }
-
-        $host = isset($this->config['ftp_host']) ? $this->config['ftp_host'] : '';
-        $port = isset($this->config['ftp_port']) ? intval($this->config['ftp_port']) : 21;
-        $user = isset($this->config['ftp_user']) ? $this->config['ftp_user'] : '';
-        $pass = isset($this->config['ftp_pass']) ? $this->config['ftp_pass'] : '';
-        $directory = isset($this->config['ftp_directory']) ? $this->config['ftp_directory'] : '';
-
-        if (empty($host) || empty($user) || empty($pass)) {
-            MHI_Logger::error('Brak kompletnych danych FTP dla hurtowni: ' . $this->name);
-            return false;
-        }
-
-        // Katalog docelowy
-        $uploads_dir = wp_upload_dir();
-        $target_dir = $uploads_dir['basedir'] . '/wholesale/' . $this->name . '/';
-
-        // Utwórz katalog jeśli nie istnieje
         if (!file_exists($target_dir)) {
             wp_mkdir_p($target_dir);
         }
 
-        // Pobierz pliki z FTP
-        try {
-            $ftp_files = $this->fetch_files_from_ftp($host, $user, $pass, $port, $directory, $target_dir);
+        if (class_exists('MHI_Logger')) {
+            MHI_Logger::info('PAR - Rozpoczynam pobieranie plików przez API');
+        }
 
-            if ($ftp_files === false) {
-                MHI_Logger::error('Błąd pobierania plików FTP dla hurtowni: ' . $this->name);
-                return false;
+        if (!$this->connect()) {
+            if (class_exists('MHI_Logger')) {
+                MHI_Logger::error('PAR - Nie udało się połączyć z API');
+            }
+            return $files;
+        }
+
+        if (!is_writable($target_dir)) {
+            if (class_exists('MHI_Logger')) {
+                MHI_Logger::error('Katalog docelowy nie ma uprawnień do zapisu: ' . $target_dir);
+            }
+            return $files;
+        }
+
+        // Pobierz dane z każdego endpointu (porządek: małe -> duże pliki)
+        $endpoints_order = array(
+            'categories' => 'kategorie',
+            'stocks' => 'stan_magazynowy',
+            'products' => 'lista_produktow'   // Największy plik na końcu
+        );
+
+        foreach ($endpoints_order as $endpoint => $name) {
+            if (class_exists('MHI_Logger')) {
+                MHI_Logger::info("PAR - Pobieranie endpoint: $endpoint");
             }
 
-            MHI_Logger::info('Pobrano pliki dla hurtowni: ' . $this->name . '. Liczba plików: ' . count($ftp_files));
-            return true;
-        } catch (Exception $e) {
-            MHI_Logger::error('Wyjątek podczas pobierania plików FTP dla hurtowni: ' . $this->name . '. ' . $e->getMessage());
+            $file_info = $this->download_api_data($endpoint, $name, $target_dir);
+            if ($file_info) {
+                $files[] = $file_info;
+                if (class_exists('MHI_Logger')) {
+                    MHI_Logger::info("PAR - Sukces: $name.xml (" . $file_info['size'] . " bajtów)");
+                }
+            } else {
+                if (class_exists('MHI_Logger')) {
+                    MHI_Logger::error("PAR - Błąd pobierania: $name.xml");
+                }
+            }
+        }
+
+        if (class_exists('MHI_Logger')) {
+            MHI_Logger::info('PAR - Zakończono pobieranie plików. Pobrano ' . count($files) . ' plików.');
+        }
+
+        return $files;
+    }
+
+
+
+    /**
+     * Pobiera dane z API i zapisuje jako plik XML.
+     *
+     * @param string $endpoint Endpoint API
+     * @param string $name Nazwa pliku
+     * @param string $target_dir Katalog docelowy
+     * @return array|false Informacje o pliku lub false w przypadku błędu
+     */
+    private function download_api_data($endpoint, $name, $target_dir)
+    {
+        $url = $this->config['api_base_url'] . $endpoint;
+        $filename = $name . '.xml';
+        $local_path = $target_dir . '/' . $filename;
+
+        if (class_exists('MHI_Logger')) {
+            MHI_Logger::info('PAR - Pobieranie danych z: ' . $url);
+        }
+
+        // Zwiększ timeout dla dużych plików (szczególnie products)
+        $timeout = ($endpoint === 'products') ? 600 : 120; // 10 minut dla products, 2 minuty dla reszty
+
+        $args = array(
+            'timeout' => $timeout,
+            'sslverify' => false,
+            'headers' => array(
+                'Authorization' => 'Basic ' . base64_encode($this->config['api_username'] . ':' . $this->config['api_password']),
+                'Accept' => 'application/xml',
+                'User-Agent' => 'WordPress/' . get_bloginfo('version') . '; ' . get_bloginfo('url'),
+            ),
+        );
+
+        $response = wp_remote_get($url, $args);
+
+        if (is_wp_error($response)) {
+            if (class_exists('MHI_Logger')) {
+                MHI_Logger::error('PAR - Błąd podczas pobierania ' . $filename . ': ' . $response->get_error_message());
+            }
             return false;
         }
+
+        $http_code = wp_remote_retrieve_response_code($response);
+        if ($http_code !== 200) {
+            if (class_exists('MHI_Logger')) {
+                MHI_Logger::error('PAR - Nieprawidłowa odpowiedź podczas pobierania ' . $filename . '. Kod HTTP: ' . $http_code);
+                $response_body = wp_remote_retrieve_body($response);
+                MHI_Logger::error('PAR - Treść odpowiedzi: ' . substr($response_body, 0, 500));
+            }
+            return false;
+        }
+
+        $body = wp_remote_retrieve_body($response);
+        if (empty($body)) {
+            if (class_exists('MHI_Logger')) {
+                MHI_Logger::error('PAR - Pusta odpowiedź podczas pobierania ' . $filename);
+            }
+            return false;
+        }
+
+        // Zapisz plik
+        $result = file_put_contents($local_path, $body);
+        if ($result === false) {
+            if (class_exists('MHI_Logger')) {
+                MHI_Logger::error('PAR - Nie udało się zapisać pliku ' . $filename);
+            }
+            return false;
+        }
+
+        if (class_exists('MHI_Logger')) {
+            MHI_Logger::info('PAR - Pobrano plik: ' . $filename . ' (' . strlen($body) . ' bajtów)');
+        }
+
+        return array(
+            'filename' => $filename,
+            'local_path' => $local_path,
+            'remote_path' => $url,
+            'size' => filesize($local_path),
+            'timestamp' => time()
+        );
     }
 
     /**
-     * Sprawdza poprawność danych logowania
+     * Waliduje dane dostępowe do hurtowni.
      *
-     * @return bool Informacja czy dane logowania są poprawne
+     * @return bool True jeśli dane są poprawne, false w przeciwnym razie.
      */
     public function validate_credentials()
     {
-        return $this->connect();
+        return !empty($this->config['api_username']) && !empty($this->config['api_password']);
     }
 
     /**
-     * Przetwarza pobrane pliki
+     * Przetwarza pobrane pliki.
      *
-     * @param array $files Lista plików do przetworzenia
-     * @return mixed Wynik operacji przetwarzania plików
+     * @param array $files Lista plików do przetworzenia.
+     * @return bool True w przypadku powodzenia, false w przypadku błędu.
      */
     public function process_files($files)
     {
-        // Implementacja przetwarzania plików
+        if (class_exists('MHI_Logger')) {
+            MHI_Logger::info('PAR - Przetworzono ' . count($files) . ' plików XML');
+        }
         return true;
     }
 
@@ -187,8 +313,10 @@ class MHI_Hurtownia_3 implements MHI_Integration_Interface
      */
     public function cancel_download()
     {
-        update_option('mhi_download_status_' . $this->name, __('Anulowano pobieranie.', 'multi-hurtownie-integration'));
-        MHI_Logger::info('Anulowano pobieranie dla hurtowni ' . $this->name);
+        update_option('mhi_download_status_' . $this->name, __('Anulowano pobieranie.', 'multi-wholesale-integration'));
+        if (class_exists('MHI_Logger')) {
+            MHI_Logger::info('PAR - Anulowano pobieranie');
+        }
     }
 
     /**
@@ -200,137 +328,78 @@ class MHI_Hurtownia_3 implements MHI_Integration_Interface
      */
     public function fetch_images($batch_number = 1, $img_dir = '/images')
     {
-        // Ta hurtownia nie obsługuje pobierania zdjęć w partiach
-        MHI_Logger::info('Hurtownia ' . $this->name . ' nie obsługuje pobierania zdjęć w partiach');
+        // PAR korzysta z adresów URL zdjęć w XML
+        if (class_exists('MHI_Logger')) {
+            MHI_Logger::info('PAR - Nie obsługuje pobierania zdjęć - używa adresów URL');
+        }
         return array();
     }
 
     /**
-     * Pobiera pliki z serwera FTP i zapisuje je lokalnie.
-     * 
-     * @param string $host Adres serwera FTP.
-     * @param string $user Nazwa użytkownika FTP.
-     * @param string $pass Hasło użytkownika FTP.
-     * @param int $port Port FTP.
-     * @param string $directory Katalog na serwerze FTP.
-     * @param string $target_dir Katalog docelowy.
-     * @return array|false Tablica z nazwami pobranych plików lub false w przypadku błędu.
-     */
-    protected function fetch_files_from_ftp($host, $user, $pass, $port, $directory, $target_dir)
-    {
-        // Nawiązanie połączenia FTP
-        $conn_id = ftp_connect($host, $port);
-        if (!$conn_id) {
-            MHI_Logger::error('Nie udało się połączyć z serwerem FTP: ' . $host . ':' . $port);
-            return false;
-        }
-
-        // Logowanie
-        $login_result = ftp_login($conn_id, $user, $pass);
-        if (!$login_result) {
-            MHI_Logger::error('Nie udało się zalogować do serwera FTP. Użytkownik: ' . $user);
-            ftp_close($conn_id);
-            return false;
-        }
-
-        // Włącz tryb pasywny
-        ftp_pasv($conn_id, true);
-
-        // Przejdź do katalogu jeśli podany
-        if (!empty($directory)) {
-            if (!ftp_chdir($conn_id, $directory)) {
-                MHI_Logger::error('Nie udało się przejść do katalogu: ' . $directory);
-                ftp_close($conn_id);
-                return false;
-            }
-        }
-
-        // Pobierz listę plików
-        $files = ftp_nlist($conn_id, '.');
-        if (!$files) {
-            MHI_Logger::error('Nie znaleziono plików w katalogu FTP');
-            ftp_close($conn_id);
-            return false;
-        }
-
-        // Pobierz pliki XML
-        $downloaded_files = [];
-        foreach ($files as $file) {
-            // Pomiń katalogi
-            if ($file === '.' || $file === '..' || !preg_match('/\.xml$/i', $file)) {
-                continue;
-            }
-
-            $local_file = $target_dir . basename($file);
-            if (ftp_get($conn_id, $local_file, $file, FTP_BINARY)) {
-                $downloaded_files[] = basename($file);
-                MHI_Logger::info('Pobrano plik: ' . $file);
-            } else {
-                MHI_Logger::error('Nie udało się pobrać pliku: ' . $file);
-            }
-        }
-
-        // Zamknij połączenie
-        ftp_close($conn_id);
-
-        return $downloaded_files;
-    }
-
-    /**
-     * Generuje plik XML dla WooCommerce na podstawie danych z hurtowni.
-     * 
-     * @return string|false Nazwa pliku lub false w przypadku błędu.
-     */
-    public function generate_wc_xml()
-    {
-        try {
-            MHI_Logger::info("Rozpoczęcie generowania pliku XML dla WooCommerce (hurtownia {$this->name})");
-
-            // Sprawdź czy katalog uploads/wholesale/{$this->name} istnieje
-            $upload_dir = wp_upload_dir();
-            $hurtownia_dir = $upload_dir['basedir'] . "/wholesale/{$this->name}/";
-
-            if (!file_exists($hurtownia_dir)) {
-                MHI_Logger::error("Błąd: Katalog {$hurtownia_dir} nie istnieje.");
-                return false;
-            }
-
-            // Utwórz generator XML
-            require_once MHI_PLUGIN_DIR . 'integrations/class-mhi-macma-wc-xml-generator.php';
-            $generator = new MHI_Macma_WC_XML_Generator($hurtownia_dir);
-
-            // Generuj plik XML
-            $result = $generator->generate_woocommerce_xml();
-
-            // Nazwa pliku wynikowego powinna być zgodna z tą tworzoną przez generator
-            $output_file = 'woocommerce_import_' . $this->name . '.xml';
-
-            if ($result) {
-                MHI_Logger::info("Pomyślnie wygenerowano plik XML: {$output_file}");
-
-                // Zapisz informację o ostatnim przetwarzaniu do opcji
-                update_option('mhi_hurtownia_3_last_xml_file', $output_file);
-                update_option('mhi_hurtownia_3_last_xml_date', current_time('mysql'));
-
-                return $output_file;
-            } else {
-                MHI_Logger::error("Błąd: Nie udało się wygenerować pliku XML dla hurtowni {$this->name}.");
-                return false;
-            }
-        } catch (Exception $e) {
-            MHI_Logger::error("Wyjątek podczas generowania XML dla hurtowni {$this->name}: " . $e->getMessage());
-            return false;
-        }
-    }
-
-    /**
-     * Importuje produkty z pliku XML do WooCommerce.
+     * Importuje produkty z hurtowni do WooCommerce.
      *
      * @return string Informacja o wyniku importu.
      * @throws Exception W przypadku błędu podczas importu.
      */
     public function import_products_to_woocommerce()
     {
-        throw new Exception(__('Funkcja importu produktów została wyłączona.', 'multi-hurtownie-integration'));
+        // Sprawdź czy plik XML został wygenerowany
+        if (!$this->generate_woocommerce_xml()) {
+            throw new Exception(__('Nie udało się wygenerować pliku XML do importu.', 'multi-wholesale-integration'));
+        }
+
+        // Przekieruj do strony importu
+        $import_url = admin_url('admin.php?page=mhi-product-import&supplier=' . $this->name);
+        wp_redirect($import_url);
+        exit;
+    }
+
+    /**
+     * Generuje plik XML do importu do WooCommerce.
+     *
+     * @return bool True jeśli plik został wygenerowany pomyślnie, false w przeciwnym razie.
+     */
+    public function generate_woocommerce_xml()
+    {
+        try {
+            if (class_exists('MHI_Logger')) {
+                MHI_Logger::info("PAR - Rozpoczęcie generowania pliku XML dla WooCommerce");
+            }
+
+            // Sprawdź czy katalog uploads/wholesale/par istnieje
+            $upload_dir = wp_upload_dir();
+            $hurtownia_dir = $upload_dir['basedir'] . "/wholesale/{$this->name}/";
+
+            if (!file_exists($hurtownia_dir)) {
+                if (class_exists('MHI_Logger')) {
+                    MHI_Logger::error("PAR - Błąd: Katalog {$hurtownia_dir} nie istnieje.");
+                }
+                return false;
+            }
+
+            // Utwórz generator XML
+            require_once MHI_PLUGIN_DIR . 'integrations/class-mhi-par-wc-xml-generator.php';
+            $generator = new MHI_Par_WC_XML_Generator($hurtownia_dir);
+
+            // Generuj plik XML
+            $result = $generator->generate_woocommerce_xml();
+
+            if ($result) {
+                if (class_exists('MHI_Logger')) {
+                    MHI_Logger::info("PAR - Pomyślnie wygenerowano plik XML");
+                }
+                return true;
+            } else {
+                if (class_exists('MHI_Logger')) {
+                    MHI_Logger::error("PAR - Błąd: Nie udało się wygenerować pliku XML.");
+                }
+                return false;
+            }
+        } catch (Exception $e) {
+            if (class_exists('MHI_Logger')) {
+                MHI_Logger::error("PAR - Wyjątek podczas generowania XML: " . $e->getMessage());
+            }
+            return false;
+        }
     }
 }

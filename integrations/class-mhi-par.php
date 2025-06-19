@@ -37,7 +37,7 @@ class MHI_Par implements MHI_Integration_Interface
     {
         // Inicjalizacja konfiguracji
         $this->config = array(
-            'api_base_url' => 'https://www.par.com.pl/api/',
+            'api_base_url' => 'http://www.par.com.pl/api/',  // Zmiana na HTTP zamiast HTTPS
             'api_username' => get_option('mhi_hurtownia_3_api_username', ''),
             'api_password' => get_option('mhi_hurtownia_3_api_password', ''),
             'endpoints' => array(
@@ -75,59 +75,73 @@ class MHI_Par implements MHI_Integration_Interface
             return false;
         }
 
-        // Test połączenia z API
-        $test_url = $this->config['api_base_url'] . $this->config['endpoints']['products'];
-
-        if (class_exists('MHI_Logger')) {
-            MHI_Logger::info('PAR - Próba połączenia z: ' . $test_url);
-            MHI_Logger::info('PAR - Username: ' . $this->config['api_username']);
-        }
-
-        $args = array(
-            'timeout' => 30, // Zmniejszam timeout do 30 sekund dla szybszego debugowania
-            'sslverify' => false, // Wyłączam weryfikację SSL
-            'headers' => array(
-                'Authorization' => 'Basic ' . base64_encode($this->config['api_username'] . ':' . $this->config['api_password']),
-                'Accept' => 'application/xml',
-                'User-Agent' => 'WordPress/' . get_bloginfo('version') . '; ' . get_bloginfo('url'),
-            ),
+        // Test połączenia z API - spróbuj różne warianty
+        $test_urls = array(
+            'http://www.par.com.pl/api/products',
+            'https://www.par.com.pl/api/products',
+            'http://par.com.pl/api/products',
+            'https://par.com.pl/api/products'
         );
 
-        if (class_exists('MHI_Logger')) {
-            MHI_Logger::info('PAR - Wysyłanie żądania HTTP...');
-        }
-
-        $response = wp_remote_get($test_url, $args);
-
-        if (is_wp_error($response)) {
+        foreach ($test_urls as $test_url) {
             if (class_exists('MHI_Logger')) {
-                MHI_Logger::error('PAR - Błąd HTTP: ' . $response->get_error_message());
-                MHI_Logger::error('PAR - UWAGA: Sprawdź czy Twój adres IP jest na białej liście u PAR!');
+                MHI_Logger::info('PAR - Próba połączenia z: ' . $test_url);
+                MHI_Logger::info('PAR - Username: ' . $this->config['api_username']);
+            }
 
-                // Pobierz zewnętrzny adres IP
-                $external_ip = $this->get_external_ip();
-                if ($external_ip) {
-                    MHI_Logger::error('PAR - Twój zewnętrzny adres IP: ' . $external_ip);
-                    MHI_Logger::error('PAR - Skontaktuj się z PAR aby dodać ten IP do białej listy');
+            $args = array(
+                'timeout' => 60, // Rozumny timeout 60 sekund
+                'sslverify' => false, // Wyłączam weryfikację SSL
+                'headers' => array(
+                    'Authorization' => 'Basic ' . base64_encode($this->config['api_username'] . ':' . $this->config['api_password']),
+                    'Accept' => 'application/xml',
+                    'User-Agent' => 'WordPress/' . get_bloginfo('version') . '; ' . get_bloginfo('url'),
+                ),
+            );
+
+            if (class_exists('MHI_Logger')) {
+                MHI_Logger::info('PAR - Wysyłanie żądania HTTP...');
+            }
+
+            $response = wp_remote_get($test_url, $args);
+
+            if (is_wp_error($response)) {
+                if (class_exists('MHI_Logger')) {
+                    MHI_Logger::error('PAR - Błąd HTTP dla ' . $test_url . ': ' . $response->get_error_message());
+                }
+                continue; // Spróbuj następny URL
+            }
+
+            $http_code = wp_remote_retrieve_response_code($response);
+            if ($http_code === 200) {
+                if (class_exists('MHI_Logger')) {
+                    MHI_Logger::info('PAR - Sukces! Połączono z: ' . $test_url);
+                }
+                // Zaktualizuj konfigurację z działającym URL
+                $this->config['api_base_url'] = str_replace('products', '', $test_url);
+                return true;
+            } else {
+                if (class_exists('MHI_Logger')) {
+                    MHI_Logger::error('PAR - Nieprawidłowa odpowiedź API dla ' . $test_url . '. Kod HTTP: ' . $http_code);
+                    $response_body = wp_remote_retrieve_body($response);
+                    MHI_Logger::error('PAR - Treść odpowiedzi: ' . substr($response_body, 0, 500));
                 }
             }
-            return false;
         }
 
-        $http_code = wp_remote_retrieve_response_code($response);
-        if ($http_code !== 200) {
-            if (class_exists('MHI_Logger')) {
-                MHI_Logger::error('PAR - Nieprawidłowa odpowiedź API. Kod HTTP: ' . $http_code);
-                $response_body = wp_remote_retrieve_body($response);
-                MHI_Logger::error('PAR - Treść odpowiedzi: ' . substr($response_body, 0, 500));
-            }
-            return false;
-        }
-
+        // Jeśli żaden URL nie zadziałał
         if (class_exists('MHI_Logger')) {
-            MHI_Logger::info('PAR - Połączono z API pomyślnie');
+            MHI_Logger::error('PAR - Żaden z testowanych URL nie zadziałał');
+            MHI_Logger::error('PAR - UWAGA: Sprawdź czy Twój adres IP jest na białej liście u PAR!');
+
+            // Pobierz zewnętrzny adres IP
+            $external_ip = $this->get_external_ip();
+            if ($external_ip) {
+                MHI_Logger::error('PAR - Twój zewnętrzny adres IP: ' . $external_ip);
+                MHI_Logger::error('PAR - Skontaktuj się z PAR aby dodać ten IP do białej listy');
+            }
         }
-        return true;
+        return false;
     }
 
     /**

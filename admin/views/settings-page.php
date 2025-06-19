@@ -50,6 +50,11 @@ $active_tab = isset($_GET['tab']) ? sanitize_text_field($_GET['tab']) : 'general
             <span class="dashicons dashicons-image-filter"></span>
             <?php _e('Macma', 'multi-hurtownie-integration'); ?>
         </a>
+        <a href="?page=multi-hurtownie-integration&tab=anda"
+            class="nav-tab <?php echo $active_tab === 'anda' ? 'nav-tab-active' : ''; ?>">
+            <span class="dashicons dashicons-store"></span>
+            <?php _e('ANDA', 'multi-hurtownie-integration'); ?>
+        </a>
     </h2>
 
     <div class="mhi-admin-content">
@@ -669,6 +674,54 @@ $active_tab = isset($_GET['tab']) ? sanitize_text_field($_GET['tab']) : 'general
                 </div>
             </div>
 
+            <!-- Sekcja: Test połączenia PAR -->
+            <div class="postbox">
+                <div class="postbox-header">
+                    <h2><span class="dashicons dashicons-admin-network"></span>
+                        <?php _e('Test połączenia PAR', 'multi-hurtownie-integration'); ?></h2>
+                </div>
+                <div class="inside">
+                    <p><?php _e('Sprawdź połączenie z API PAR przed rozpoczęciem synchronizacji.', 'multi-hurtownie-integration'); ?>
+                    </p>
+
+                    <div id="mhi_par_test_result" style="margin: 10px 0;"></div>
+
+                    <button type="button" id="mhi_par_test_connection" class="button button-secondary">
+                        <span class="dashicons dashicons-admin-network"></span>
+                        <?php _e('Test połączenia API', 'multi-hurtownie-integration'); ?>
+                    </button>
+
+                    <script type="text/javascript">
+                        jQuery(document).ready(function ($) {
+                            $('#mhi_par_test_connection').click(function () {
+                                var button = $(this);
+                                var result = $('#mhi_par_test_result');
+
+                                button.prop('disabled', true);
+                                button.html('<span class="dashicons dashicons-update"></span> <?php _e('Testowanie...', 'multi-hurtownie-integration'); ?>');
+                                result.html('<div class="notice notice-info inline"><p><?php _e('Testowanie połączenia...', 'multi-hurtownie-integration'); ?></p></div>');
+
+                                $.post(ajaxurl, {
+                                    action: 'mhi_test_par_connection',
+                                    _ajax_nonce: '<?php echo wp_create_nonce('mhi_test_par_connection'); ?>'
+                                }, function (response) {
+                                    if (response.success) {
+                                        result.html('<div class="notice notice-success inline"><p>✅ ' + response.data.message + '</p></div>');
+                                    } else {
+                                        result.html('<div class="notice notice-error inline"><p>❌ ' + response.data.message + '</p></div>');
+                                    }
+                                }).fail(function () {
+                                    result.html('<div class="notice notice-error inline"><p>❌ <?php _e('Błąd podczas testowania połączenia.', 'multi-hurtownie-integration'); ?></p></div>');
+                                }).always(function () {
+                                    button.prop('disabled', false);
+                                    button.html('<span class="dashicons dashicons-admin-network"></span> <?php _e('Test połączenia API', 'multi-hurtownie-integration'); ?>');
+                                });
+                            });
+                        });
+                    </script>
+                </div>
+            </div>
+
             <!-- Sekcja: Pobieranie danych PAR -->
             <div class="postbox">
                 <div class="postbox-header">
@@ -687,6 +740,8 @@ $active_tab = isset($_GET['tab']) ? sanitize_text_field($_GET['tab']) : 'general
                                 value="<?php _e('Pobierz pliki', 'multi-hurtownie-integration'); ?>">
                         </form>
                     </div>
+
+
 
                     <!-- Generowanie pliku XML -->
                     <div class="mhi-action-section"
@@ -956,6 +1011,172 @@ $active_tab = isset($_GET['tab']) ? sanitize_text_field($_GET['tab']) : 'general
 
                                     <!-- Przycisk do przekierowania na import.php -->
                                     <a href="<?php echo esc_url(plugins_url('/import.php?supplier=macma', dirname(dirname(__FILE__)))); ?>"
+                                        class="button button-secondary">
+                                        <?php _e('Importuj przez przeglądarkę', 'multi-hurtownie-integration'); ?>
+                                    </a>
+                                </div>
+                            </form>
+                        <?php else: ?>
+                            <div class="notice notice-warning inline">
+                                <p><?php _e('Brak wygenerowanego pliku XML. Najpierw wygeneruj plik XML.', 'multi-hurtownie-integration'); ?>
+                                </p>
+                            </div>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            </div>
+        <?php elseif ($active_tab === 'anda'): ?>
+            <div class="postbox">
+                <div class="postbox-header">
+                    <h2><span class="dashicons dashicons-store"></span>
+                        <?php _e('Ustawienia ANDA', 'multi-hurtownie-integration'); ?></h2>
+                </div>
+                <div class="inside">
+                    <div class="notice notice-success">
+                        <p><strong><?php _e('Informacja:', 'multi-hurtownie-integration'); ?></strong>
+                            <?php _e('ANDA używa XML API z predefiniowanymi danymi dostępu:', 'multi-hurtownie-integration'); ?>
+                        </p>
+                        <ul>
+                            <li><?php _e('• API URL: https://xml.andapresent.com/export/', 'multi-hurtownie-integration'); ?>
+                            </li>
+                            <li><?php _e('• Token autoryzacyjny: skonfigurowany automatycznie', 'multi-hurtownie-integration'); ?>
+                            </li>
+                            <li><?php _e('• FTP do zdjęć: ftp://82.131.166.34/', 'multi-hurtownie-integration'); ?></li>
+                        </ul>
+                        <p><strong><?php _e('Dostępne endpointy:', 'multi-hurtownie-integration'); ?></strong></p>
+                        <ul>
+                            <li><?php _e('• /prices - Cennik', 'multi-hurtownie-integration'); ?></li>
+                            <li><?php _e('• /inventories - Stany magazynowe', 'multi-hurtownie-integration'); ?></li>
+                            <li><?php _e('• /products/pl - Produkty (PL)', 'multi-hurtownie-integration'); ?></li>
+                            <li><?php _e('• /categories/pl - Kategorie (PL)', 'multi-hurtownie-integration'); ?></li>
+                            <li><?php _e('• /labeling/pl - Znakowanie (PL)', 'multi-hurtownie-integration'); ?></li>
+                            <li><?php _e('• /printingprices - Ceny nadruków', 'multi-hurtownie-integration'); ?></li>
+                        </ul>
+                    </div>
+
+                    <?php
+                    // Wyświetl informację o problemie z IP, jeśli istnieje
+                    $ip_issue = get_option('mhi_anda_ip_issue');
+                    if ($ip_issue): ?>
+                        <div class="notice notice-error inline">
+                            <p><strong><?php _e('Ważne:', 'multi-wholesale-integration'); ?></strong>
+                                <?php _e('Połączenie z ANDA nie powiodło się (błąd 403). Prawdopodobnie musisz dodać swój adres IP do białej listy w panelu ANDA.', 'multi-wholesale-integration'); ?>
+                            </p>
+                            <p><strong><?php _e('Twój aktualny adres IP serwera:', 'multi-wholesale-integration'); ?></strong>
+                                <code><?php echo esc_html($ip_issue); ?></code>
+                            </p>
+                            <p><?php _e('Skontaktuj się z ANDA, aby dodać ten adres IP do autoryzowanych.', 'multi-wholesale-integration'); ?>
+                            </p>
+                        </div>
+                    <?php endif; ?>
+
+                    <form method="post" action="options.php">
+                        <?php
+                        settings_fields('mhi_hurtownia_6_settings');
+                        do_settings_sections('multi-hurtownie-integration-anda');
+                        submit_button();
+                        ?>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Sekcja: Pobieranie danych ANDA -->
+            <div class="postbox">
+                <div class="postbox-header">
+                    <h2><span class="dashicons dashicons-update"></span>
+                        <?php _e('Operacje ANDA', 'multi-hurtownie-integration'); ?></h2>
+                </div>
+                <div class="inside">
+                    <!-- Pobieranie danych z serwera -->
+                    <div class="mhi-action-section">
+                        <h3><?php _e('Pobieranie danych z serwera XML', 'multi-hurtownie-integration'); ?></h3>
+                        <p><?php _e('Pobiera najnowsze pliki XML z danymi produktów z serwera ANDA.', 'multi-hurtownie-integration'); ?>
+                        </p>
+                        <form method="post" action="">
+                            <?php wp_nonce_field('mhi_anda_fetch_files', 'mhi_anda_fetch_files_nonce'); ?>
+                            <input type="submit" name="mhi_anda_fetch_files" class="button button-primary"
+                                value="<?php _e('Pobierz pliki XML', 'multi-hurtownie-integration'); ?>">
+                            <input type="submit" name="mhi_anda_test_connection" class="button button-secondary"
+                                value="<?php _e('Test połączenia API', 'multi-hurtownie-integration'); ?>">
+                        </form>
+                    </div>
+
+                    <!-- Pobieranie zdjęć -->
+                    <div class="mhi-action-section"
+                        style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #e5e5e5;">
+                        <h3><?php _e('Pobieranie zdjęć', 'multi-hurtownie-integration'); ?></h3>
+                        <p><?php _e('Pobiera zdjęcia produktów z serwera FTP ANDA (w partiach po 50 plików).', 'multi-hurtownie-integration'); ?>
+                        </p>
+                        <form method="post" action="">
+                            <?php wp_nonce_field('mhi_anda_fetch_images', 'mhi_anda_fetch_images_nonce'); ?>
+                            <div style="margin-bottom: 10px;">
+                                <label
+                                    for="anda_batch_number"><?php _e('Numer partii:', 'multi-hurtownie-integration'); ?></label>
+                                <input type="number" name="anda_batch_number" id="anda_batch_number" value="1" min="1"
+                                    max="100" style="width: 80px;">
+                                <small><?php _e('(partia 1 = pliki 1-50, partia 2 = pliki 51-100, itd.)', 'multi-hurtownie-integration'); ?></small>
+                            </div>
+                            <input type="submit" name="mhi_anda_fetch_images" class="button button-secondary"
+                                value="<?php _e('Pobierz zdjęcia FTP', 'multi-hurtownie-integration'); ?>">
+                        </form>
+                    </div>
+
+                    <!-- Generowanie pliku XML -->
+                    <div class="mhi-action-section"
+                        style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #e5e5e5;">
+                        <h3><?php _e('Generowanie pliku XML', 'multi-hurtownie-integration'); ?></h3>
+                        <p><?php _e('Generuje plik XML z produktami ANDA do późniejszego importu.', 'multi-hurtownie-integration'); ?>
+                        </p>
+                        <form method="post" action="">
+                            <?php wp_nonce_field('mhi_anda_generate_xml', 'mhi_anda_generate_xml_nonce'); ?>
+                            <input type="submit" name="mhi_anda_generate_xml" class="button button-primary"
+                                value="<?php _e('Generuj plik XML', 'multi-hurtownie-integration'); ?>">
+                        </form>
+                    </div>
+
+                    <!-- Import produktów -->
+                    <div class="mhi-action-section"
+                        style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #e5e5e5;">
+                        <h3><?php _e('Import produktów', 'multi-hurtownie-integration'); ?></h3>
+                        <p><?php _e('Importuje produkty z wygenerowanego pliku XML do WooCommerce.', 'multi-hurtownie-integration'); ?>
+                        </p>
+
+                        <?php
+                        // Sprawdź czy plik XML istnieje
+                        $upload_dir = wp_upload_dir();
+                        // Poprawna ścieżka dla ANDA
+                        $xml_file = trailingslashit($upload_dir['basedir']) . 'wholesale/anda/woocommerce_import_anda.xml';
+                        $xml_exists = file_exists($xml_file);
+                        $xml_date = $xml_exists ? date_i18n(get_option('date_format') . ' ' . get_option('time_format'), filemtime($xml_file)) : '';
+                        ?>
+
+                        <?php if ($xml_exists): ?>
+                            <div class="notice notice-info inline">
+                                <p><?php printf(__('Plik XML został wygenerowany: %s', 'multi-hurtownie-integration'), $xml_date); ?>
+                                </p>
+
+                                <?php
+                                // Dodatkowe informacje o pliku
+                                $file_size = size_format(filesize($xml_file));
+                                $file_name = basename($xml_file);
+                                ?>
+                                <div class="mhi-file-info">
+                                    <p><strong><?php _e('Nazwa pliku:', 'multi-hurtownie-integration'); ?></strong>
+                                        <?php echo esc_html($file_name); ?></p>
+                                    <p><strong><?php _e('Rozmiar pliku:', 'multi-hurtownie-integration'); ?></strong>
+                                        <?php echo esc_html($file_size); ?></p>
+                                    <p><strong><?php _e('Data wygenerowania:', 'multi-hurtownie-integration'); ?></strong>
+                                        <?php echo esc_html($xml_date); ?></p>
+                                </div>
+                            </div>
+                            <form method="post" action="">
+                                <?php wp_nonce_field('mhi_anda_import_products', 'mhi_anda_import_products_nonce'); ?>
+                                <div class="mhi-button-group">
+                                    <input type="submit" name="mhi_anda_import_products" class="button button-primary"
+                                        value="<?php _e('Importuj produkty', 'multi-hurtownie-integration'); ?>">
+
+                                    <!-- Przycisk do przekierowania na import.php -->
+                                    <a href="<?php echo esc_url(plugins_url('/import.php?supplier=anda', dirname(dirname(__FILE__)))); ?>"
                                         class="button button-secondary">
                                         <?php _e('Importuj przez przeglądarkę', 'multi-hurtownie-integration'); ?>
                                     </a>

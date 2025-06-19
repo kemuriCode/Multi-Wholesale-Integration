@@ -54,6 +54,9 @@ $offset = isset($_GET['offset']) ? (int) $_GET['offset'] : 0;
 $auto_continue = isset($_GET['auto_continue']) && $_GET['auto_continue'] === '1';
 $max_products = isset($_GET['max_products']) ? (int) $_GET['max_products'] : 0;
 
+// Logowanie parametrów
+error_log("MHI Import: supplier=$supplier, stage=$stage, batch_size=$batch_size, offset=$offset, auto_continue=" . ($auto_continue ? 'TRUE' : 'FALSE'));
+
 if (!in_array($stage, [1, 2, 3])) {
     wp_die('Stage musi być 1, 2 lub 3!');
 }
@@ -84,7 +87,9 @@ $start_time = microtime(true);
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🚀 CRON STAGE <?php echo $stage; ?> - <?php echo strtoupper($supplier); ?></title>
+    <title>🚀 CRON STAGE <?php echo $stage; ?> -
+        <?php echo strtoupper($supplier); ?>
+    </title>
     <style>
         * {
             box-sizing: border-box;
@@ -267,7 +272,8 @@ $start_time = microtime(true);
 <body>
     <div class="container">
         <h1>🚀 CRON STAGE
-            <?php echo $stage; ?> - <?php echo strtoupper($supplier); ?>
+            <?php echo $stage; ?> -
+            <?php echo strtoupper($supplier); ?>
         </h1>
 
         <div class="stage-info">
@@ -281,12 +287,14 @@ $start_time = microtime(true);
                 <strong>📷 STAGE 3: GALERIA OBRAZÓW</strong><br>
                 Importowanie i konwersja obrazów do WebP z optymalizacją
             <?php endif; ?>
-            <br><small>Przetwarzanie: <?php echo $batch_size; ?> produktów na raz, offset:
+            <br><small>Przetwarzanie:
+                <?php echo $batch_size; ?> produktów na raz, offset:
                 <?php echo $offset; ?>
                 <?php if ($auto_continue): ?>
                     | 🔄 <strong>Auto-continue AKTYWNY</strong>
                     <?php if ($max_products > 0): ?>
-                        (max: <?php echo $max_products; ?>)
+                        (max:
+                        <?php echo $max_products; ?>)
                     <?php endif; ?>
                 <?php endif; ?></small>
         </div>
@@ -302,11 +310,11 @@ $start_time = microtime(true);
                 <div class="stat-value" id="processedCount">0</div>
                 <div class="stat-label">Przetworzonych</div>
             </div>
-            <div class="stat stage<?php echo $stage; ?>">
+            <div class=" stat stage<?php echo $stage; ?>">
                 <div class="stat-value" id="successCount">0</div>
                 <div class="stat-label">Udanych</div>
             </div>
-            <div class="stat failed">
+            <div class=" stat failed">
                 <div class="stat-value" id="failedCount">0</div>
                 <div class="stat-label">Błędów</div>
             </div>
@@ -316,18 +324,20 @@ $start_time = microtime(true);
             </div>
         </div>
 
-        <div class="log-container">
+        <div class=" log-container">
             <div class="log" id="logContainer"></div>
         </div>
 
         <div style="text-align: center; margin-top: 30px;">
             <?php if ($stage < 3): ?>
-                <a href="?supplier=<?php echo $supplier; ?>&stage=<?php echo ($stage + 1); ?>&batch_size=<?php echo $batch_size; ?>"
-                    class="next-stage">
+                <a href="?supplier=<?php echo $supplier; ?>&stage=
+            <?php echo ($stage + 1); ?>&batch_size=
+            <?php echo $batch_size; ?>" class="next-stage">
                     Przejdź do Stage <?php echo ($stage + 1); ?>
                 </a>
             <?php endif; ?>
-            <a href="<?php echo admin_url('admin.php?page=mhi-import'); ?>" class="back-link">Wróć do panelu</a>
+            <a href="<?php echo admin_url('admin.php?page=mhi-import'); ?>" class="back-link">Wróć do
+                panelu</a>
         </div>
     </div>
 
@@ -384,6 +394,39 @@ $start_time = microtime(true);
     wp_suspend_cache_invalidation(true);
 
     $stats = ['processed' => 0, 'success' => 0, 'failed' => 0, 'skipped' => 0];
+
+    // DODATKOWY DEBUG dla Stage 3
+    if ($stage == 3) {
+        addLog("🔍 Stage 3 DEBUG: Sprawdzam produkty gotowe do importu obrazów...", "info");
+        $ready_count = 0;
+        $missing_stage2_count = 0;
+        $already_done_count = 0;
+
+        for ($check_i = $offset; $check_i < min($offset + $batch_size, $total); $check_i++) {
+            if (!isset($products[$check_i]))
+                continue;
+
+            $check_sku = trim((string) $products[$check_i]->sku);
+            if (empty($check_sku))
+                $check_sku = trim((string) $products[$check_i]->id);
+
+            $check_product_id = wc_get_product_id_by_sku($check_sku);
+            if ($check_product_id) {
+                $s2_done = get_post_meta($check_product_id, '_mhi_stage_2_done', true);
+                $s3_done = get_post_meta($check_product_id, '_mhi_stage_3_done', true);
+
+                if ($s3_done === 'yes') {
+                    $already_done_count++;
+                } elseif ($s2_done === 'yes') {
+                    $ready_count++;
+                } else {
+                    $missing_stage2_count++;
+                }
+            }
+        }
+
+        addLog("📊 W tym batch'u: Gotowe=$ready_count | Brak Stage2=$missing_stage2_count | Już zrobione=$already_done_count", "info");
+    }
 
     // Przetwarzaj batch produktów
     for ($i = $offset; $i < $end_offset; $i++) {
@@ -445,17 +488,31 @@ $start_time = microtime(true);
     $duration = round(microtime(true) - $start_time, 2);
     addLog("🎉 STAGE {$stage} ZAKOŃCZONY w {$duration}s!", "success");
     addLog("📊 Sukces: {$stats['success']}, Błędy: {$stats['failed']}, Pominięte: {$stats['skipped']}", "info");
-
     // AUTO-CONTINUE - sprawdź czy są jeszcze produkty do przetworzenia
     if ($auto_continue) {
+        addLog("🔄 AUTO-CONTINUE: Sprawdzam warunki kontynuacji...", "info");
+
         $next_offset = $offset + $batch_size;
         $products_to_process = $max_products > 0 ? $max_products : $total;
         $current_processed = $offset + $stats['processed'];
 
+        addLog("📊 Offset: $offset → $next_offset | Produktów: $current_processed/$products_to_process | Total XML: $total", "info");
+
         // Sprawdź różne warunki zakończenia
         $no_more_products = $next_offset >= $total;
         $reached_limit = $max_products > 0 && $current_processed >= $max_products;
-        $no_success_in_batch = $stats['success'] == 0 && $stats['processed'] > 0;
+
+        // Specjalna logika dla każdego stage'a
+        if ($stage == 3) {
+            // Stage 3: Kontynuuj nawet jeśli wszystko pomijane (może Stage 1/2 nie zostały wykonane)
+            $no_success_in_batch = false;
+            addLog("🖼️ Stage 3: Kontynuuję nawet przy samych pominięciach (może Stage 1/2 nie ukończone)", "info");
+        } else {
+            // Stage 1/2: Nie przerywaj jeśli są jeszcze produkty w XML
+            $no_success_in_batch = $stats['success'] == 0 && $stats['processed'] > 0 && $next_offset >= $total;
+        }
+
+        addLog("🔍 Warunki: końc_XML=" . ($no_more_products ? 'TAK' : 'NIE') . " | limit=" . ($reached_limit ? 'TAK' : 'NIE') . " | brak_sukcesów=" . ($no_success_in_batch ? 'TAK' : 'NIE'), "info");
 
         if ($no_more_products || $reached_limit || $no_success_in_batch) {
             // ZAKOŃCZENIE AUTO-CONTINUE
@@ -502,6 +559,7 @@ $start_time = microtime(true);
             }
         } else {
             // KONTYNUACJA
+            addLog("🚀 KONTYNUACJA AUTO-CONTINUE!", "success");
             $remaining = min($products_to_process - $next_offset, $total - $next_offset);
             addLog("🔄 Auto-continue: Pozostało {$remaining} produktów", "info");
             addLog("📊 Postęp: {$current_processed}/{$products_to_process} (" . round(($current_processed / $products_to_process) * 100, 1) . "%)", "info");
@@ -512,6 +570,8 @@ $start_time = microtime(true);
                 $next_url .= "&max_products={$max_products}";
             }
 
+            addLog("🔗 Następny URL: " . $next_url, "info");
+
             echo '<script>
                 setTimeout(function() {
                     addLog("🚀 Przekierowanie do batch\'a " + Math.ceil(' . $next_offset . '/' . $batch_size . ') + "...", "info");
@@ -519,6 +579,8 @@ $start_time = microtime(true);
                 }, 5000);
             </script>';
         }
+    } else {
+        addLog("❌ Auto-continue WYŁĄCZONY (parametr auto_continue nie jest = 1)", "warning");
     }
 
     // FUNKCJE PRZETWARZANIA STAGE'ÓW
@@ -597,14 +659,23 @@ $start_time = microtime(true);
         if (!$product_id)
             return false;
 
-        // Kategorie
+        // Kategorie - obsługa zarówno Malfini (string) jak i Axpol (XML lista)
         if (isset($product_xml->categories)) {
-            $categories_text = html_entity_decode(trim((string) $product_xml->categories), ENT_QUOTES, 'UTF-8');
-            if (!empty($categories_text)) {
+            $categories_data = $product_xml->categories;
+
+            // Sprawdź czy to string (Malfini) czy XML object (Axpol)
+            if (isset($categories_data->category)) {
+                // AXPOL format - lista kategorii
+                $category_ids = process_product_categories($categories_data);
+            } else {
+                // MALFINI format - jeden string
+                $categories_text = html_entity_decode(trim((string) $categories_data), ENT_QUOTES, 'UTF-8');
                 $category_ids = process_product_categories($categories_text);
-                if (!empty($category_ids)) {
-                    wp_set_object_terms($product_id, $category_ids, 'product_cat');
-                }
+            }
+
+            if (!empty($category_ids)) {
+                wp_set_object_terms($product_id, $category_ids, 'product_cat');
+                addLog("   📂 Kategorie: " . count($category_ids) . " kategorii", "info");
             }
         }
 
@@ -612,6 +683,19 @@ $start_time = microtime(true);
         $brand_name = find_brand_in_xml($product_xml);
         if (!empty($brand_name)) {
             process_product_brand($brand_name, $product_id);
+        }
+
+        // Przetwórz meta_data z XML (Axpol ma dodatkowe dane)
+        if (isset($product_xml->meta_data)) {
+            foreach ($product_xml->meta_data as $meta) {
+                $key = trim((string) $meta->key);
+                $value = trim((string) $meta->value);
+
+                if (!empty($key) && !empty($value)) {
+                    update_post_meta($product_id, $key, $value);
+                    addLog("   📝 Meta: $key = $value", "info");
+                }
+            }
         }
 
         // Oznacz Stage 1 jako ukończony
@@ -708,7 +792,24 @@ $start_time = microtime(true);
                 }
 
                 if (!empty($term_ids)) {
-                    $is_variation = trim((string) $attribute_xml->variation) === 'yes';
+                    // Obsługa różnych formatów: Malfini vs Axpol
+                    if (isset($attribute_xml->variation)) {
+                        // MALFINI format - ma pole variation
+                        $is_variation = trim((string) $attribute_xml->variation) === 'yes';
+                    } else {
+                        // AXPOL format - sprawdź czy może być wariantem
+                        $attr_name_lower = strtolower($attr_name);
+                        $has_multiple_values = strpos($attr_value, ',') !== false;
+
+                        // Typowe nazwy wariantów
+                        $variant_names = ['kolor', 'rozmiar', 'wielkość', 'size', 'color', 'colour'];
+                        $is_potential_variant = $has_multiple_values || in_array($attr_name_lower, $variant_names);
+
+                        // Dla Axpol domyślnie nie tworzymy wariantów
+                        $is_variation = false;
+
+                        addLog("   🏷️ AXPOL: $attr_name = $attr_value" . ($is_potential_variant ? ' (potencjał wariantu)' : ''), "info");
+                    }
 
                     $wc_attribute = new WC_Product_Attribute();
                     $wc_attribute->set_id($attribute_id);
@@ -755,23 +856,36 @@ $start_time = microtime(true);
     function process_stage_3($product_xml, $sku, $name)
     {
         $product_id = wc_get_product_id_by_sku($sku);
-        if (!$product_id)
+        if (!$product_id) {
+            addLog("❌ Stage 3: Produkt SKU $sku nie znaleziony", "error");
             return false;
+        }
+
+        // Debug: sprawdź statusy stage'ów
+        $stage_1_done = get_post_meta($product_id, '_mhi_stage_1_done', true);
+        $stage_2_done = get_post_meta($product_id, '_mhi_stage_2_done', true);
+        $stage_3_done = get_post_meta($product_id, '_mhi_stage_3_done', true);
+
+        addLog("🔍 Status dla $sku: Stage1=$stage_1_done | Stage2=$stage_2_done | Stage3=$stage_3_done", "info");
 
         // Sprawdź czy Stage 2 został ukończony
-        if (get_post_meta($product_id, '_mhi_stage_2_done', true) !== 'yes') {
-            addLog("⚠️ Stage 2 nie został ukończony - pomijam", "warning");
+        if ($stage_2_done !== 'yes') {
+            addLog("⚠️ Stage 2 nie został ukończony dla $sku (wartość: '$stage_2_done') - pomijam", "warning");
             return 'skipped';
         }
 
         // Sprawdź czy Stage 3 już ukończony
-        if (get_post_meta($product_id, '_mhi_stage_3_done', true) === 'yes') {
+        if ($stage_3_done === 'yes') {
+            addLog("⏭️ Stage 3 już ukończony dla $sku", "info");
             return 'skipped';
         }
+
+        addLog("🖼️ Stage 3: Rozpoczynam import obrazów dla $sku", "info");
 
         // Przetwarzaj obrazy
         if (isset($product_xml->images->image)) {
             $images = $product_xml->images->image;
+            addLog("📷 Znaleziono sekcję images->image", "info");
 
             // Konwertuj do tablicy
             if (is_object($images) && get_class($images) === 'SimpleXMLElement') {
@@ -787,14 +901,23 @@ $start_time = microtime(true);
                 $images = [$images];
             }
 
+            addLog("📸 Liczba obrazów do przetworzenia: " . count($images), "info");
+
             if (isset($_GET['replace_images']) && $_GET['replace_images'] === '1') {
                 clean_product_gallery($product_id, false);
+                addLog("🗑️ Wyczyszczono istniejące obrazy", "info");
             }
 
             $gallery_result = import_product_gallery($images, $product_id);
             if (!$gallery_result['success']) {
+                addLog("❌ Błąd importu galerii: " . $gallery_result['message'], "error");
                 return false;
+            } else {
+                addLog("✅ Import galerii zakończony: " . $gallery_result['message'], "success");
             }
+        } else {
+            addLog("⚠️ Brak sekcji images->image w XML dla $sku", "warning");
+            // Jeśli nie ma obrazów, to i tak oznaczamy jako ukończone
         }
 
         // Oznacz Stage 3 jako ukończony
@@ -806,37 +929,66 @@ $start_time = microtime(true);
     
     function process_product_categories($categories_text)
     {
+        if (empty($categories_text)) {
+            return [];
+        }
+
         $category_ids = [];
-        if (strpos($categories_text, '>') !== false) {
-            $parts = array_map('trim', explode('>', $categories_text));
-            $parent_id = 0;
-            foreach ($parts as $part) {
-                if (empty($part))
-                    continue;
-                $term = get_term_by('name', $part, 'product_cat');
-                if (!$term) {
-                    $term = wp_insert_term($part, 'product_cat', ['parent' => $parent_id]);
-                    if (!is_wp_error($term)) {
-                        $parent_id = $term['term_id'];
-                        $category_ids[] = $parent_id;
-                    }
-                } else {
-                    $parent_id = $term->term_id;
-                    $category_ids[] = $parent_id;
-                }
-            }
+
+        // Sprawdź czy categories_text to string czy XML object
+        if (is_string($categories_text)) {
+            // MALFINI format - jeden string z > jako separatorem
+            $categories = explode('>', $categories_text);
         } else {
-            $term = get_term_by('name', $categories_text, 'product_cat');
-            if (!$term) {
-                $term = wp_insert_term($categories_text, 'product_cat');
-                if (!is_wp_error($term)) {
-                    $category_ids[] = $term['term_id'];
+            // AXPOL format - lista kategorii w XML
+            $categories = [];
+            if (isset($categories_text->category)) {
+                foreach ($categories_text->category as $category) {
+                    $cat_name = trim((string) $category);
+                    if (!empty($cat_name)) {
+                        // Sprawdź czy ma > separator (podkategoria)
+                        if (strpos($cat_name, ' > ') !== false) {
+                            $subcats = explode(' > ', $cat_name);
+                            foreach ($subcats as $subcat) {
+                                $categories[] = trim($subcat);
+                            }
+                        } else {
+                            $categories[] = $cat_name;
+                        }
+                    }
                 }
-            } else {
-                $category_ids[] = $term->term_id;
             }
         }
-        return array_unique($category_ids);
+
+        // Usuń duplikaty i puste elementy
+        $categories = array_unique(array_filter(array_map('trim', $categories)));
+
+        $parent_id = 0;
+        foreach ($categories as $category_name) {
+            if (empty($category_name))
+                continue;
+
+            // Sprawdź czy kategoria już istnieje
+            $existing_term = get_term_by('name', $category_name, 'product_cat');
+            if ($existing_term) {
+                $category_ids[] = $existing_term->term_id;
+                $parent_id = $existing_term->term_id; // Następna będzie podkategorią
+            } else {
+                // Utwórz nową kategorię
+                $term_data = wp_insert_term(
+                    $category_name,
+                    'product_cat',
+                    array('parent' => $parent_id)
+                );
+
+                if (!is_wp_error($term_data)) {
+                    $category_ids[] = $term_data['term_id'];
+                    $parent_id = $term_data['term_id']; // Następna będzie podkategorią
+                }
+            }
+        }
+
+        return $category_ids;
     }
 
     function find_brand_in_xml($product_xml)
@@ -926,6 +1078,8 @@ $start_time = microtime(true);
         $image_ids = [];
         $imported_count = 0;
 
+        addLog("🖼️ Rozpoczynam import galerii dla produktu ID: $product_id", "info");
+
         foreach ($images as $index => $image) {
             $image_url = '';
             $attributes = $image->attributes();
@@ -939,19 +1093,26 @@ $start_time = microtime(true);
             }
 
             if (empty($image_url) || !filter_var($image_url, FILTER_VALIDATE_URL)) {
+                addLog("⚠️ Nieprawidłowy URL obrazu [$index]: '$image_url'", "warning");
                 continue;
             }
 
+            addLog("📥 Importuję obraz [$index]: $image_url", "info");
             $is_featured = ($index === 0);
             $attachment_id = import_product_image($image_url, $product_id, $is_featured);
 
             if ($attachment_id) {
                 $image_ids[] = $attachment_id;
                 $imported_count++;
+                addLog("✅ Obraz [$index] zaimportowany: ID $attachment_id", "success");
+            } else {
+                addLog("❌ Błąd importu obrazu [$index]: $image_url", "error");
             }
         }
 
         if ($imported_count > 0) {
+            addLog("✅ Zaimportowano $imported_count obrazów", "success");
+
             $featured_id = get_post_thumbnail_id($product_id);
             $gallery_ids = array_filter($image_ids, function ($id) use ($featured_id) {
                 return $id != $featured_id;
@@ -964,12 +1125,14 @@ $start_time = microtime(true);
                     $product->set_gallery_image_ids($gallery_ids);
                     $product->save();
                 }
+                addLog("📷 Ustawiono galerię: " . count($gallery_ids) . " obrazów", "info");
             }
 
-            return ['success' => true, 'imported_count' => $imported_count];
+            return ['success' => true, 'message' => "Zaimportowano $imported_count obrazów", 'imported_count' => $imported_count];
         }
 
-        return ['success' => false, 'imported_count' => 0];
+        addLog("❌ Nie udało się zaimportować żadnego obrazu!", "error");
+        return ['success' => false, 'message' => "Nie udało się zaimportować żadnego obrazu", 'imported_count' => 0];
     }
 
     function import_product_image($image_url, $product_id, $is_featured = false)
@@ -989,27 +1152,43 @@ $start_time = microtime(true);
         }
 
         // Pobierz obraz
+        addLog("🌐 Pobieram obraz z: $image_url", "info");
         $response = wp_remote_get($image_url, [
             'timeout' => 30,
             'sslverify' => false,
             'user-agent' => 'Mozilla/5.0 (compatible; WordPressBot/1.0)'
         ]);
 
-        if (is_wp_error($response) || wp_remote_retrieve_response_code($response) !== 200) {
+        if (is_wp_error($response)) {
+            addLog("❌ Błąd wp_remote_get: " . $response->get_error_message(), "error");
+            return false;
+        }
+
+        $response_code = wp_remote_retrieve_response_code($response);
+        if ($response_code !== 200) {
+            addLog("❌ HTTP kod: $response_code dla URL: $image_url", "error");
             return false;
         }
 
         $image_data = wp_remote_retrieve_body($response);
-        if (empty($image_data))
+        if (empty($image_data)) {
+            addLog("❌ Pusta odpowiedź serwera dla: $image_url", "error");
             return false;
+        }
+
+        addLog("✅ Pobrano " . strlen($image_data) . " bajtów", "info");
 
         // Generuj losową datę
         $months_back = rand(1, 18);
         $timestamp = strtotime("-{$months_back} months");
         $upload_dir = wp_upload_dir(date('Y/m', $timestamp));
 
-        if (!wp_mkdir_p($upload_dir['path']))
+        if (!wp_mkdir_p($upload_dir['path'])) {
+            addLog("❌ Nie można utworzyć folderu: " . $upload_dir['path'], "error");
             return false;
+        }
+
+        addLog("📁 Folder uploads: " . $upload_dir['path'], "info");
 
         // Przygotuj plik
         $filename = time() . '_' . basename($image_url);
@@ -1065,11 +1244,15 @@ $start_time = microtime(true);
             'post_date_gmt' => gmdate('Y-m-d H:i:s', $timestamp)
         ];
 
+        addLog("💾 Zapisuję attachment do WP...", "info");
         $attach_id = wp_insert_attachment($attachment, $file_path, $product_id);
         if (!$attach_id) {
+            addLog("❌ Błąd wp_insert_attachment", "error");
             @unlink($file_path);
             return false;
         }
+
+        addLog("✅ Attachment utworzony: ID $attach_id", "success");
 
         update_post_meta($attach_id, '_mhi_source_url', $image_url);
 

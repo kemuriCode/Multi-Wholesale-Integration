@@ -311,85 +311,135 @@ class MHI_Axpol_WC_XML_Generator
 
         $item->appendChild($attributes);
 
-        // Stan magazynowy
+        // Stan magazynowy - ROZSZERZONA WERSJA dla AXPOL
         if (isset($this->stock_data[$code])) {
             $stock = $this->stock_data[$code];
-            $stock_quantity = (int) $stock->na_magazynie_dostepne_teraz;
-            $this->add_xml_element($dom, $item, 'stock_quantity', $stock_quantity);
-            $this->add_xml_element($dom, $item, 'stock_status', $stock_quantity > 0 ? 'instock' : 'outofstock');
 
-            // Dodatkowe informacje o możliwej dostawie
-            $on_order = (int) $stock->na_zamowienie;
-            if ($on_order > 0) {
-                $next_delivery = $dom->createElement('meta_data');
-                $this->add_xml_element($dom, $next_delivery, 'key', '_axpol_on_order');
-                $this->add_xml_element($dom, $next_delivery, 'value', $on_order);
-                $item->appendChild($next_delivery);
+            // Podstawowe stany
+            $dostepne_teraz = (int) $stock->na_magazynie_dostepne_teraz;
+            $w_rezerwacji = (int) $stock->na_magazynie_w_rezerwacji;
+            $na_zamowienie = (int) $stock->na_zamowienie;
+            $kolejna_dostawa = (int) $stock->kolejna_dostawa;
+            $data_dostawy = trim((string) $stock->data_kolejnej_dostawy);
 
-                if (!empty($stock->data_kolejnej_dostawy)) {
-                    $delivery_date = $dom->createElement('meta_data');
-                    $this->add_xml_element($dom, $delivery_date, 'key', '_axpol_next_delivery_date');
-                    $this->add_xml_element($dom, $delivery_date, 'value', (string) $stock->data_kolejnej_dostawy);
-                    $item->appendChild($delivery_date);
-                }
+            // Ustawienie stanu podstawowego WooCommerce
+            $this->add_xml_element($dom, $item, 'stock_quantity', $dostepne_teraz);
+            $this->add_xml_element($dom, $item, 'stock_status', $dostepne_teraz > 0 ? 'instock' : 'outofstock');
+
+            // NOWE CUSTOM FIELDS dla AXPOL
+
+            // Stan dostępny teraz
+            $meta_dostepne = $dom->createElement('meta_data');
+            $this->add_xml_element($dom, $meta_dostepne, 'key', '_axpol_dostepne_teraz');
+            $this->add_xml_element($dom, $meta_dostepne, 'value', $dostepne_teraz);
+            $item->appendChild($meta_dostepne);
+
+            // Stan w rezerwacji
+            $meta_rezerwacja = $dom->createElement('meta_data');
+            $this->add_xml_element($dom, $meta_rezerwacja, 'key', '_axpol_w_rezerwacji');
+            $this->add_xml_element($dom, $meta_rezerwacja, 'value', $w_rezerwacji);
+            $item->appendChild($meta_rezerwacja);
+
+            // Na zamówienie (1-2 dni)
+            $meta_zamowienie = $dom->createElement('meta_data');
+            $this->add_xml_element($dom, $meta_zamowienie, 'key', '_axpol_na_zamowienie');
+            $this->add_xml_element($dom, $meta_zamowienie, 'value', $na_zamowienie);
+            $item->appendChild($meta_zamowienie);
+
+            // Kolejna dostawa
+            if ($kolejna_dostawa > 0) {
+                $meta_kolejna_dostawa = $dom->createElement('meta_data');
+                $this->add_xml_element($dom, $meta_kolejna_dostawa, 'key', '_axpol_kolejna_dostawa');
+                $this->add_xml_element($dom, $meta_kolejna_dostawa, 'value', $kolejna_dostawa);
+                $item->appendChild($meta_kolejna_dostawa);
             }
+
+            // Data kolejnej dostawy
+            if (!empty($data_dostawy) && $data_dostawy !== '0') {
+                $meta_data_dostawy = $dom->createElement('meta_data');
+                $this->add_xml_element($dom, $meta_data_dostawy, 'key', '_axpol_data_dostawy');
+                $this->add_xml_element($dom, $meta_data_dostawy, 'value', $data_dostawy);
+                $item->appendChild($meta_data_dostawy);
+            }
+
+            // Flaga informacyjna o rodzaju dostępności
+            $typ_dostepnosci = '';
+            if ($dostepne_teraz > 0) {
+                $typ_dostepnosci = 'dostepny_natychmiast';
+            } elseif ($w_rezerwacji > 0) {
+                $typ_dostepnosci = 'dostepny_z_rezerwacji';
+            } elseif ($na_zamowienie > 0) {
+                $typ_dostepnosci = 'dostepny_1_2_dni';
+            } elseif ($kolejna_dostawa > 0) {
+                $typ_dostepnosci = 'dostepny_pozniej';
+            } else {
+                $typ_dostepnosci = 'niedostepny';
+            }
+
+            $meta_typ = $dom->createElement('meta_data');
+            $this->add_xml_element($dom, $meta_typ, 'key', '_axpol_typ_dostepnosci');
+            $this->add_xml_element($dom, $meta_typ, 'value', $typ_dostepnosci);
+            $item->appendChild($meta_typ);
+
+            // Łączna dostępność (włączając różne stany)
+            $laczna_dostepnosc = $dostepne_teraz + $w_rezerwacji + $na_zamowienie;
+            $meta_laczna = $dom->createElement('meta_data');
+            $this->add_xml_element($dom, $meta_laczna, 'key', '_axpol_laczna_dostepnosc');
+            $this->add_xml_element($dom, $meta_laczna, 'value', $laczna_dostepnosc);
+            $item->appendChild($meta_laczna);
+
+            // Komunikat dla klienta o dostępności
+            $komunikat_dostepnosci = $this->generate_availability_message($dostepne_teraz, $w_rezerwacji, $na_zamowienie, $kolejna_dostawa, $data_dostawy);
+            if (!empty($komunikat_dostepnosci)) {
+                $meta_komunikat = $dom->createElement('meta_data');
+                $this->add_xml_element($dom, $meta_komunikat, 'key', '_axpol_komunikat_dostepnosci');
+                $this->add_xml_element($dom, $meta_komunikat, 'value', $komunikat_dostepnosci);
+                $item->appendChild($meta_komunikat);
+            }
+
         } else {
             // Domyślnie ustaw jako niedostępny, jeśli nie ma informacji o stanie
             $this->add_xml_element($dom, $item, 'stock_quantity', '0');
             $this->add_xml_element($dom, $item, 'stock_status', 'outofstock');
+
+            // Dodaj informację o braku danych
+            $meta_brak_danych = $dom->createElement('meta_data');
+            $this->add_xml_element($dom, $meta_brak_danych, 'key', '_axpol_typ_dostepnosci');
+            $this->add_xml_element($dom, $meta_brak_danych, 'value', 'brak_danych');
+            $item->appendChild($meta_brak_danych);
         }
 
         // Obrazy
         $images = $dom->createElement('images');
 
-        // Przygotuj kod produktu do użycia w URL-ach zdjęć
-        $product_code = $code;
-        $using_fallback = false;
-
-        // Przygotowanie kodów produktów dla różnych formatów URL
-        // Format dla głównego zdjęcia (zachowujemy kropki i myślniki)
-        $main_code = $product_code;
-
-        // Format dla galerii zdjęć (usuwamy kropki i myślniki)
-        $gallery_code = str_replace(['.', '-', ' '], '', $product_code);
-
-        // Główne zdjęcie (format: https://axpol.com.pl/files/fotohr/P308.841_S_0.jpg)
-        $main_image_url = 'https://axpol.com.pl/files/fotohr/' . $main_code . '_S_0.jpg';
-        $image = $dom->createElement('image');
-        $image->setAttribute('src', $main_image_url);
-        $images->appendChild($image);
-
-        // Zapisz informację o głównym zdjęciu do logów
-        MHI_Logger::info('Główne zdjęcie dla produktu ' . $code . ': ' . $main_image_url);
-
-        // Dodatkowe zdjęcia - galeria (format: https://axpol.com.pl/files/foto_add_view/P308841_2.jpg)
-        // Dodajemy dynamicznie dodatkowe zdjęcia
-        for ($i = 2; $i <= 5; $i++) {
-            $gallery_image_url = 'https://axpol.com.pl/files/foto_add_view/' . $gallery_code . '_' . $i . '.jpg';
+        // Główne zdjęcie z Foto01 - używamy /files/fotohr/
+        if (!empty($product->Foto01)) {
+            $main_image_filename = (string) $product->Foto01;
+            $main_image_url = 'https://axpol.com.pl/files/fotohr/' . $main_image_filename;
             $image = $dom->createElement('image');
-            $image->setAttribute('src', $gallery_image_url);
+            $image->setAttribute('src', $main_image_url);
             $images->appendChild($image);
 
-            // Zapisz informację o dodatkowym zdjęciu do logów dla pierwszego zdjęcia w galerii
-            if ($i == 2) {
-                MHI_Logger::info('Dodatkowe zdjęcie dla produktu ' . $code . ': ' . $gallery_image_url);
-            }
+            // Zapisz informację o głównym zdjęciu do logów
+            MHI_Logger::info('Główne zdjęcie dla produktu ' . $code . ': ' . $main_image_url);
         }
 
-        // Zachowaj także oryginalne adresy URL zdjęć z pliku XML jako zapasowe
-        if (!empty($product->Foto01)) {
-            $original_image_url = 'https://axpol.com.pl/images/products/' . (string) $product->Foto01;
-            $meta_original_img = $dom->createElement('meta_data');
-            $this->add_xml_element($dom, $meta_original_img, 'key', '_axpol_original_img_url');
-            $this->add_xml_element($dom, $meta_original_img, 'value', $original_image_url);
-            $item->appendChild($meta_original_img);
+        // Dodatkowe zdjęcia - galeria z Foto02, Foto03, Foto04, etc. - używamy /files/foto_add_view/
+        for ($i = 2; $i <= 10; $i++) {
+            $foto_field = 'Foto' . sprintf('%02d', $i); // Foto02, Foto03, etc.
 
-            // Dodajemy również oryginalne zdjęcie jako dodatkowe
-            $image = $dom->createElement('image');
-            $image->setAttribute('src', $original_image_url);
-            $images->appendChild($image);
+            if (!empty($product->$foto_field)) {
+                $gallery_image_filename = (string) $product->$foto_field;
+                $gallery_image_url = 'https://axpol.com.pl/files/foto_add_view/' . $gallery_image_filename;
+                $image = $dom->createElement('image');
+                $image->setAttribute('src', $gallery_image_url);
+                $images->appendChild($image);
 
-            MHI_Logger::info('Oryginalny URL zdjęcia dla produktu ' . $code . ': ' . $original_image_url);
+                // Zapisz informację o dodatkowym zdjęciu do logów dla pierwszego zdjęcia w galerii
+                if ($i == 2) {
+                    MHI_Logger::info('Dodatkowe zdjęcie dla produktu ' . $code . ': ' . $gallery_image_url);
+                }
+            }
         }
 
         $item->appendChild($images);
@@ -422,5 +472,40 @@ class MHI_Axpol_WC_XML_Generator
         $text = $dom->createTextNode($value);
         $element->appendChild($text);
         $parent->appendChild($element);
+    }
+
+    /**
+     * Generuje komunikat o dostępności produktu dla klienta.
+     *
+     * @param int $dostepne_teraz Dostępne natychmiast
+     * @param int $w_rezerwacji W rezerwacji  
+     * @param int $na_zamowienie Na zamówienie (1-2 dni)
+     * @param int $kolejna_dostawa Kolejna dostawa
+     * @param string $data_dostawy Data kolejnej dostawy
+     * @return string Komunikat o dostępności
+     */
+    private function generate_availability_message($dostepne_teraz, $w_rezerwacji, $na_zamowienie, $kolejna_dostawa, $data_dostawy)
+    {
+        if ($dostepne_teraz > 0) {
+            return "Dostępne natychmiast: {$dostepne_teraz} szt.";
+        }
+
+        if ($w_rezerwacji > 0) {
+            return "Dostępne z rezerwacji: {$w_rezerwacji} szt. (mogą być dodatkowe warunki)";
+        }
+
+        if ($na_zamowienie > 0) {
+            return "Dostępne na zamówienie: {$na_zamowienie} szt. (realizacja 1-2 dni robocze)";
+        }
+
+        if ($kolejna_dostawa > 0 && !empty($data_dostawy) && $data_dostawy !== '0') {
+            return "Dostępne w kolejnej dostawie: {$kolejna_dostawa} szt. (przewidywana dostawa: {$data_dostawy})";
+        }
+
+        if ($kolejna_dostawa > 0) {
+            return "Dostępne w kolejnej dostawie: {$kolejna_dostawa} szt. (data dostawy do ustalenia)";
+        }
+
+        return "Produkt obecnie niedostępny";
     }
 }

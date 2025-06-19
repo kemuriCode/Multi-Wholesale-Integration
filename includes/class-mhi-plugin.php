@@ -52,7 +52,6 @@ class MHI_Plugin
         require_once MHI_PLUGIN_DIR . 'integrations/class-mhi-hurtownia-3.php';
         require_once MHI_PLUGIN_DIR . 'integrations/class-mhi-hurtownia-4.php';
         require_once MHI_PLUGIN_DIR . 'integrations/class-mhi-hurtownia-5.php';
-        require_once MHI_PLUGIN_DIR . 'integrations/class-mhi-par.php';
     }
 
     /**

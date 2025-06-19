@@ -155,6 +155,11 @@ if (file_exists(MHI_PLUGIN_DIR . 'includes/class-mhi-cleanup.php')) {
     MHI_Logger::warning('Brak klasy MHI_Cleanup, funkcje czyszczenia danych nie będą dostępne.');
 }
 
+// Załaduj wyświetlanie dostępności produktów AXPOL
+if (file_exists(MHI_PLUGIN_DIR . 'axpol-product-availability-display.php')) {
+    require_once MHI_PLUGIN_DIR . 'axpol-product-availability-display.php';
+}
+
 // Autoloader dla klas wtyczki
 spl_autoload_register(function ($class_name) {
     // Sprawdza, czy klasa ma prefiks MHI_
@@ -546,13 +551,13 @@ function mhi_handle_form_submissions()
     // Obsługa generowania XML dla Macma
     if (isset($_POST['mhi_macma_generate_xml']) && current_user_can('manage_options')) {
         if (check_admin_referer('mhi_macma_generate_xml', 'mhi_macma_generate_xml_nonce')) {
-            // Załaduj klasę integracji Macma
-            if (file_exists(MHI_PLUGIN_DIR . 'integrations/class-mhi-hurtownia-3.php')) {
-                require_once MHI_PLUGIN_DIR . 'integrations/class-mhi-hurtownia-3.php';
-                $macma = new MHI_Hurtownia_3();
+            // Załaduj generator XML dla Macma
+            if (file_exists(MHI_PLUGIN_DIR . 'integrations/class-mhi-macma-wc-xml-generator.php')) {
+                require_once MHI_PLUGIN_DIR . 'integrations/class-mhi-macma-wc-xml-generator.php';
+                $macma_generator = new MHI_Macma_WC_XML_Generator();
 
                 // Generuj plik XML
-                $result = $macma->generate_wc_xml();
+                $result = $macma_generator->generate_woocommerce_xml();
 
                 if ($result !== false) {
                     $status = __('Plik XML został wygenerowany: ', 'multi-wholesale-integration') . $result;
@@ -636,50 +641,13 @@ function mhi_handle_form_submissions()
     // Obsługa importu produktów dla Macma
     if (isset($_POST['mhi_macma_import_products']) && current_user_can('manage_options')) {
         if (check_admin_referer('mhi_macma_import_products', 'mhi_macma_import_products_nonce')) {
-            // Załaduj klasę integracji Macma
-            if (file_exists(MHI_PLUGIN_DIR . 'integrations/class-mhi-hurtownia-3.php')) {
-                require_once MHI_PLUGIN_DIR . 'integrations/class-mhi-hurtownia-3.php';
-                $macma = new MHI_Hurtownia_3();
-
-                // Importuj produkty
-                try {
-                    $result = $macma->import_products_to_woocommerce();
-
-                    if ($result === true) {
-                        $status = __('Import produktów rozpoczęty. Proces może potrwać kilka minut.', 'multi-wholesale-integration');
-                        add_settings_error(
-                            'mhi_macma_import_products',
-                            'mhi_import_started',
-                            $status,
-                            'success'
-                        );
-                        update_option('mhi_macma_import_status', $status);
-                    } else {
-                        add_settings_error(
-                            'mhi_macma_import_products',
-                            'mhi_import_failed',
-                            is_string($result) ? $result : __('Wystąpił błąd podczas importu produktów.', 'multi-wholesale-integration'),
-                            'error'
-                        );
-                        update_option('mhi_macma_import_status', __('Błąd importu: ', 'multi-wholesale-integration') . (is_string($result) ? $result : ''));
-                    }
-                } catch (Exception $e) {
-                    add_settings_error(
-                        'mhi_macma_import_products',
-                        'mhi_import_failed',
-                        $e->getMessage(),
-                        'error'
-                    );
-                    update_option('mhi_macma_import_status', __('Błąd importu: ', 'multi-wholesale-integration') . $e->getMessage());
-                }
-            } else {
-                add_settings_error(
-                    'mhi_macma_import_products',
-                    'mhi_integration_not_found',
-                    __('Nie znaleziono klasy integracji Macma.', 'multi-wholesale-integration'),
-                    'error'
-                );
-            }
+            // Komunikat o dostępności importu - Macma używa zewnętrznego systemu importu
+            add_settings_error(
+                'mhi_macma_import_products',
+                'mhi_import_info',
+                __('Import produktów Macma dostępny przez wygenerowany plik XML. Użyj WP All Import lub innego narzędzia importu.', 'multi-wholesale-integration'),
+                'info'
+            );
         }
     }
 
@@ -975,6 +943,41 @@ add_action('wp_ajax_mhi_test_connection', 'mhi_test_connection_callback');
 add_action('wp_ajax_nopriv_mhi_test_connection', 'mhi_test_connection_callback');
 
 /**
+ * Test endpoint PAR API
+ */
+function mhi_test_par_connection()
+{
+    // Sprawdź nonce
+    if (!wp_verify_nonce($_POST['_ajax_nonce'], 'mhi_test_par_connection')) {
+        wp_die('Nieprawidłowy nonce');
+    }
+
+    if (!current_user_can('manage_options')) {
+        wp_die('Brak uprawnień');
+    }
+
+    try {
+        require_once MHI_PLUGIN_DIR . 'integrations/class-mhi-par.php';
+        $par = new MHI_Par();
+
+        if ($par->connect()) {
+            wp_send_json_success(array(
+                'message' => __('Połączenie z API PAR działa poprawnie!', 'multi-wholesale-integration')
+            ));
+        } else {
+            wp_send_json_error(array(
+                'message' => __('Test połączenia nieudany! Sprawdź adres IP na białej liście PAR i poprawność danych logowania.', 'multi-wholesale-integration')
+            ));
+        }
+    } catch (Exception $e) {
+        wp_send_json_error(array(
+            'message' => sprintf(__('Błąd: %s', 'multi-wholesale-integration'), $e->getMessage())
+        ));
+    }
+}
+add_action('wp_ajax_mhi_test_par_connection', 'mhi_test_par_connection');
+
+/**
  * Sprawdza czy WooCommerce jest aktywny
  * 
  * @return bool True jeśli WooCommerce jest aktywny
@@ -1097,10 +1100,10 @@ function mhi_handle_fetch_files_forms()
 
     // Obsługa formularza pobierania plików dla PAR
     if (isset($_POST['mhi_par_fetch_files']) && isset($_POST['mhi_par_fetch_files_nonce']) && wp_verify_nonce($_POST['mhi_par_fetch_files_nonce'], 'mhi_par_fetch_files')) {
-        // Załaduj klasę integracji
-        if (file_exists(MHI_PLUGIN_DIR . 'integrations/class-mhi-par.php')) {
-            require_once MHI_PLUGIN_DIR . 'integrations/class-mhi-par.php';
-            $integration = new MHI_Par();
+        // Załaduj klasę integracji PAR
+        if (file_exists(MHI_PLUGIN_DIR . 'integrations/class-mhi-hurtownia-3.php')) {
+            require_once MHI_PLUGIN_DIR . 'integrations/class-mhi-hurtownia-3.php';
+            $integration = new MHI_Hurtownia_3();
 
             try {
                 $files = $integration->fetch_files();
@@ -1216,6 +1219,177 @@ function mhi_handle_fetch_files_forms()
                 'mhi_macma_fetch_files',
                 'mhi_integration_not_found',
                 __('Nie znaleziono klasy integracji dla Macma.', 'multi-wholesale-integration'),
+                'error'
+            );
+        }
+    }
+
+    // Obsługa formularza pobierania plików dla ANDA
+    if (isset($_POST['mhi_anda_fetch_files']) && isset($_POST['mhi_anda_fetch_files_nonce']) && wp_verify_nonce($_POST['mhi_anda_fetch_files_nonce'], 'mhi_anda_fetch_files')) {
+        // Załaduj klasę integracji
+        if (file_exists(MHI_PLUGIN_DIR . 'integrations/class-mhi-hurtownia-6.php')) {
+            require_once MHI_PLUGIN_DIR . 'integrations/class-mhi-hurtownia-6.php';
+            $integration = new MHI_Hurtownia_6();
+
+            try {
+                $files = $integration->fetch_files();
+                if ($files && !empty($files)) {
+                    add_settings_error(
+                        'mhi_anda_fetch_files',
+                        'mhi_files_fetched',
+                        sprintf(__('Pobrano %d plików z serwera ANDA.', 'multi-wholesale-integration'), count($files)),
+                        'success'
+                    );
+                } else {
+                    add_settings_error(
+                        'mhi_anda_fetch_files',
+                        'mhi_files_fetch_error',
+                        __('Nie udało się pobrać plików z serwera ANDA.', 'multi-wholesale-integration'),
+                        'error'
+                    );
+                }
+            } catch (Exception $e) {
+                add_settings_error(
+                    'mhi_anda_fetch_files',
+                    'mhi_files_fetch_error',
+                    sprintf(__('Błąd podczas pobierania plików z serwera ANDA: %s', 'multi-wholesale-integration'), $e->getMessage()),
+                    'error'
+                );
+            }
+        } else {
+            add_settings_error(
+                'mhi_anda_fetch_files',
+                'mhi_integration_not_found',
+                __('Nie znaleziono klasy integracji dla ANDA.', 'multi-wholesale-integration'),
+                'error'
+            );
+        }
+    }
+
+    // Obsługa formularza pobierania zdjęć dla ANDA
+    if (isset($_POST['mhi_anda_fetch_images']) && isset($_POST['mhi_anda_fetch_images_nonce']) && wp_verify_nonce($_POST['mhi_anda_fetch_images_nonce'], 'mhi_anda_fetch_images')) {
+        // Załaduj klasę integracji
+        if (file_exists(MHI_PLUGIN_DIR . 'integrations/class-mhi-hurtownia-6.php')) {
+            require_once MHI_PLUGIN_DIR . 'integrations/class-mhi-hurtownia-6.php';
+            $integration = new MHI_Hurtownia_6();
+
+            $batch_number = isset($_POST['anda_batch_number']) ? intval($_POST['anda_batch_number']) : 1;
+
+            try {
+                $files = $integration->fetch_images($batch_number);
+                if ($files && !empty($files)) {
+                    add_settings_error(
+                        'mhi_anda_fetch_images',
+                        'mhi_files_fetched',
+                        sprintf(__('Pobrano %d zdjęć z serwera FTP ANDA (partia %d).', 'multi-wholesale-integration'), count($files), $batch_number),
+                        'success'
+                    );
+                } else {
+                    add_settings_error(
+                        'mhi_anda_fetch_images',
+                        'mhi_files_fetch_error',
+                        sprintf(__('Nie znaleziono zdjęć w partii %d na serwerze FTP ANDA.', 'multi-wholesale-integration'), $batch_number),
+                        'warning'
+                    );
+                }
+            } catch (Exception $e) {
+                add_settings_error(
+                    'mhi_anda_fetch_images',
+                    'mhi_files_fetch_error',
+                    sprintf(__('Błąd podczas pobierania zdjęć z serwera FTP ANDA: %s', 'multi-wholesale-integration'), $e->getMessage()),
+                    'error'
+                );
+            }
+        } else {
+            add_settings_error(
+                'mhi_anda_fetch_images',
+                'mhi_integration_not_found',
+                __('Nie znaleziono klasy integracji dla ANDA.', 'multi-wholesale-integration'),
+                'error'
+            );
+        }
+    }
+
+    // Obsługa testu połączenia ANDA
+    if (isset($_POST['mhi_anda_test_connection']) && isset($_POST['mhi_anda_fetch_files_nonce']) && wp_verify_nonce($_POST['mhi_anda_fetch_files_nonce'], 'mhi_anda_fetch_files')) {
+        // Załaduj klasę integracji
+        if (file_exists(MHI_PLUGIN_DIR . 'integrations/class-mhi-hurtownia-6.php')) {
+            require_once MHI_PLUGIN_DIR . 'integrations/class-mhi-hurtownia-6.php';
+            $integration = new MHI_Hurtownia_6();
+
+            try {
+                $test_result = $integration->test_endpoint('prices');
+                if ($test_result['success']) {
+                    add_settings_error(
+                        'mhi_anda_test_connection',
+                        'mhi_test_success',
+                        sprintf(__('✅ Test połączenia udany! %s. URL: %s', 'multi-wholesale-integration'), $test_result['message'], $test_result['url']),
+                        'success'
+                    );
+                } else {
+                    add_settings_error(
+                        'mhi_anda_test_connection',
+                        'mhi_test_error',
+                        sprintf(__('❌ Test połączenia nieudany! %s. URL: %s', 'multi-wholesale-integration'), $test_result['message'], isset($test_result['url']) ? $test_result['url'] : 'N/A'),
+                        'error'
+                    );
+                }
+            } catch (Exception $e) {
+                add_settings_error(
+                    'mhi_anda_test_connection',
+                    'mhi_test_error',
+                    sprintf(__('❌ Błąd podczas testowania połączenia z ANDA: %s', 'multi-wholesale-integration'), $e->getMessage()),
+                    'error'
+                );
+            }
+        } else {
+            add_settings_error(
+                'mhi_anda_test_connection',
+                'mhi_integration_not_found',
+                __('❌ Nie znaleziono klasy integracji dla ANDA.', 'multi-wholesale-integration'),
+                'error'
+            );
+        }
+    }
+
+    // Obsługa generowania XML dla ANDA
+    if (isset($_POST['mhi_anda_generate_xml']) && isset($_POST['mhi_anda_generate_xml_nonce']) && wp_verify_nonce($_POST['mhi_anda_generate_xml_nonce'], 'mhi_anda_generate_xml')) {
+        // Załaduj klasę generatora XML dla ANDA
+        if (file_exists(MHI_PLUGIN_DIR . 'integrations/class-mhi-anda-wc-xml-generator.php')) {
+            require_once MHI_PLUGIN_DIR . 'integrations/class-mhi-anda-wc-xml-generator.php';
+
+            try {
+                $generator = new MHI_ANDA_WC_XML_Generator();
+                $result = $generator->generate_all_xml_files();
+
+                if ($result) {
+                    add_settings_error(
+                        'mhi_anda_generate_xml',
+                        'mhi_xml_generated',
+                        __('✅ Plik XML WooCommerce dla ANDA został wygenerowany pomyślnie!', 'multi-wholesale-integration'),
+                        'success'
+                    );
+                } else {
+                    add_settings_error(
+                        'mhi_anda_generate_xml',
+                        'mhi_xml_generate_error',
+                        __('❌ Błąd podczas generowania pliku XML dla ANDA. Sprawdź logi błędów.', 'multi-wholesale-integration'),
+                        'error'
+                    );
+                }
+            } catch (Exception $e) {
+                add_settings_error(
+                    'mhi_anda_generate_xml',
+                    'mhi_xml_generate_error',
+                    sprintf(__('❌ Błąd podczas generowania pliku XML dla ANDA: %s', 'multi-wholesale-integration'), $e->getMessage()),
+                    'error'
+                );
+            }
+        } else {
+            add_settings_error(
+                'mhi_anda_generate_xml',
+                'mhi_generator_not_found',
+                __('❌ Nie znaleziono generatora XML dla ANDA. Sprawdź instalację pluginu.', 'multi-wholesale-integration'),
                 'error'
             );
         }
