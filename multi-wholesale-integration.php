@@ -123,6 +123,13 @@ interface MHI_Integration_Interface {
 if (file_exists(MHI_PLUGIN_DIR . 'includes/class-mhi-logger.php')) {
     require_once MHI_PLUGIN_DIR . 'includes/class-mhi-logger.php';
     MHI_Logger::init();
+
+    // Załaduj klasę AI analizera kategorii - tylko gdy potrzebna
+    if (is_admin() && isset($_GET['tab']) && $_GET['tab'] === 'ai-categories') {
+        if (file_exists(MHI_PLUGIN_DIR . 'includes/class-mhi-ai-category-analyzer.php')) {
+            require_once MHI_PLUGIN_DIR . 'includes/class-mhi-ai-category-analyzer.php';
+        }
+    }
 } else {
     // Logger nie istnieje, tworzymy prosty zastępczy logger
     class MHI_Logger

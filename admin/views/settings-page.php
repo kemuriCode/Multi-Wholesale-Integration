@@ -55,6 +55,11 @@ $active_tab = isset($_GET['tab']) ? sanitize_text_field($_GET['tab']) : 'general
             <span class="dashicons dashicons-store"></span>
             <?php _e('ANDA', 'multi-hurtownie-integration'); ?>
         </a>
+        <a href="?page=multi-hurtownie-integration&tab=ai-categories"
+            class="nav-tab <?php echo $active_tab === 'ai-categories' ? 'nav-tab-active' : ''; ?>">
+            <span class="dashicons dashicons-admin-generic"></span>
+            <?php _e('AI Kategorie', 'multi-hurtownie-integration'); ?>
+        </a>
     </h2>
 
     <div class="mhi-admin-content">
@@ -1191,6 +1196,10 @@ $active_tab = isset($_GET['tab']) ? sanitize_text_field($_GET['tab']) : 'general
                     </div>
                 </div>
             </div>
+        <?php elseif ($active_tab === 'ai-categories'): ?>
+            <!-- Sekcja: AI Kategorie -->
+            <?php include_once MHI_PLUGIN_DIR . 'admin/views/ai-categories-page.php'; ?>
+
         <?php endif; ?>
     </div>
 </div>

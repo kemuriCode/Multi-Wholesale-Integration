@@ -48,6 +48,9 @@ class MHI_Admin
 
         // Dodaj powiadomienie na stronie mediów
         add_action('admin_notices', array($this, 'add_media_cleanup_notice'));
+
+        // Dodaj obsługę AJAX dla AI kategorii
+        add_action('wp_ajax_mhi_export_ai_settings', array($this, 'ajax_export_ai_settings'));
     }
 
     /**
@@ -101,6 +104,7 @@ class MHI_Admin
         $this->register_inspirion_settings();
         $this->register_macma_settings();
         $this->register_anda_settings();
+        $this->register_openai_settings();
     }
 
     /**
@@ -509,6 +513,18 @@ class MHI_Admin
     }
 
     /**
+     * Rejestruje ustawienia dla OpenAI API
+     */
+    private function register_openai_settings()
+    {
+        // Rejestracja ustawień OpenAI
+        register_setting('mhi_openai_settings', 'mhi_openai_api_key');
+        register_setting('mhi_openai_settings', 'mhi_openai_model');
+        register_setting('mhi_openai_settings', 'mhi_openai_max_tokens');
+        register_setting('mhi_openai_settings', 'mhi_openai_temperature');
+    }
+
+    /**
      * Callback dla sekcji ustawień głównych
      */
     public function general_settings_section_callback()
@@ -681,6 +697,16 @@ class MHI_Admin
 
         // Zarejestruj styles
         wp_enqueue_style('mhi-admin-css', MHI_PLUGIN_URL . 'admin/css/mhi-admin.css', array(), MHI_VERSION);
+
+        // Załącz CSS dla AI Kategorie jeśli jest aktywna zakładka ai-categories
+        if (isset($_GET['tab']) && $_GET['tab'] === 'ai-categories') {
+            wp_enqueue_style(
+                'mhi-ai-categories-css',
+                MHI_PLUGIN_URL . 'admin/css/mhi-ai-categories.css',
+                array(),
+                MHI_VERSION
+            );
+        }
 
         // Zarejestruj skrypty
         wp_enqueue_script('mhi-admin-js', MHI_PLUGIN_URL . 'admin/js/mhi-admin.js', array('jquery'), MHI_VERSION, true);
@@ -1340,6 +1366,37 @@ class MHI_Admin
             </style>';
 
             echo '</div>';
+        }
+    }
+
+    /**
+     * Obsługa AJAX eksportu ustawień AI
+     */
+    public function ajax_export_ai_settings()
+    {
+        // Sprawdź nonce
+        if (!wp_verify_nonce($_POST['nonce'], 'mhi_export_ai_settings')) {
+            wp_die('Security check failed');
+        }
+
+        // Sprawdź uprawnienia
+        if (!current_user_can('manage_options')) {
+            wp_die('Insufficient permissions');
+        }
+
+        try {
+            // Załaduj klasę AI analizera
+            if (!class_exists('MHI_AI_Category_Analyzer')) {
+                require_once MHI_PLUGIN_DIR . 'includes/class-mhi-ai-category-analyzer.php';
+            }
+
+            $ai_analyzer = new MHI_AI_Category_Analyzer();
+            $settings = $ai_analyzer->export_settings();
+
+            wp_send_json_success($settings);
+
+        } catch (Exception $e) {
+            wp_send_json_error('Błąd podczas eksportu: ' . $e->getMessage());
         }
     }
 }

@@ -1,0 +1,471 @@
+/**
+ * Styles for AI Categories Page
+ * Multi Wholesale Integration Plugin
+ */
+
+/* Main wrapper */
+.mhi-ai-categories-wrapper {
+    max-width: 1200px;
+}
+
+.mhi-ai-categories-wrapper .postbox {
+    margin-bottom: 20px;
+}
+
+/* Analysis sections */
+.mhi-analysis-section {
+    margin: 20px 0;
+    padding: 15px;
+    background: #f9f9f9;
+    border-left: 4px solid #0073aa;
+    border-radius: 0 4px 4px 0;
+}
+
+.mhi-analysis-section h3 {
+    margin-top: 0;
+    color: #333;
+    font-size: 16px;
+    font-weight: 600;
+}
+
+/* Issues and recommendations lists */
+.mhi-issues-list,
+.mhi-recommendations-list {
+    list-style: none;
+    padding: 0;
+    margin: 10px 0;
+}
+
+.issue-item {
+    padding: 8px 0;
+    border-bottom: 1px solid #eee;
+    color: #d63638;
+    font-weight: 500;
+}
+
+.issue-item:last-child {
+    border-bottom: none;
+}
+
+.recommendation-item {
+    padding: 8px 0;
+    border-bottom: 1px solid #eee;
+    color: #00a32a;
+    font-weight: 500;
+}
+
+.recommendation-item:last-child {
+    border-bottom: none;
+}
+
+/* Proposed structure */
+.mhi-proposed-structure {
+    margin: 15px 0;
+}
+
+.main-category-item {
+    margin: 15px 0;
+    padding: 15px;
+    background: white;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.main-category-item h4 {
+    margin-top: 0;
+    margin-bottom: 10px;
+    color: #0073aa;
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.category-description {
+    margin: 5px 0 15px 0;
+    color: #666;
+    font-style: italic;
+}
+
+.subcategories-list {
+    margin-left: 20px;
+    list-style: none;
+    padding: 0;
+}
+
+.subcategory-item {
+    margin: 10px 0;
+    padding: 12px;
+    background: #f0f8ff;
+    border-left: 3px solid #0073aa;
+    border-radius: 0 4px 4px 0;
+}
+
+.subcategory-item strong {
+    color: #0073aa;
+    font-size: 14px;
+}
+
+.subcategory-item p {
+    margin: 5px 0;
+    color: #555;
+    font-size: 13px;
+}
+
+.merge-info {
+    font-size: 12px;
+    color: #666;
+    margin-top: 8px;
+    padding: 5px 8px;
+    background: #fff3cd;
+    border-radius: 3px;
+}
+
+/* Migration plan */
+.migration-section {
+    margin: 15px 0;
+}
+
+.migration-section h4 {
+    color: #333;
+    margin-bottom: 10px;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.merge-list,
+.new-categories-list,
+.delete-categories-list {
+    list-style: none;
+    padding: 0;
+    margin: 10px 0;
+}
+
+.merge-item {
+    margin: 10px 0;
+    padding: 12px;
+    background: #fff3cd;
+    border-left: 3px solid #ffc107;
+    border-radius: 0 4px 4px 0;
+}
+
+.merge-item strong {
+    color: #856404;
+    font-weight: 600;
+}
+
+.merge-item em {
+    display: block;
+    margin-top: 5px;
+    color: #6c5c0e;
+    font-size: 12px;
+}
+
+.new-categories-list li {
+    padding: 8px 0;
+    color: #00a32a;
+    font-weight: 500;
+    border-bottom: 1px solid #eee;
+}
+
+.delete-categories-list li {
+    padding: 8px 0;
+    color: #d63638;
+    font-weight: 500;
+    border-bottom: 1px solid #eee;
+}
+
+/* Action buttons */
+.mhi-action-buttons {
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 1px solid #eee;
+    text-align: left;
+}
+
+.mhi-analysis-buttons {
+    margin-top: 15px;
+}
+
+/* Analysis meta info */
+.mhi-analysis-meta {
+    padding: 10px 15px;
+    background: #f0f0f0;
+    border-radius: 4px;
+    margin-bottom: 20px;
+}
+
+.mhi-analysis-meta p {
+    margin: 5px 0;
+    font-size: 13px;
+}
+
+.status-pending {
+    color: #856404;
+    background-color: #fff3cd;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.status-completed {
+    color: #155724;
+    background-color: #d4edda;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+/* Backup management */
+.backup-section {
+    margin: 15px 0;
+    padding: 15px;
+    background: #f8f9fa;
+    border-radius: 4px;
+}
+
+.backup-section h3 {
+    margin-top: 0;
+    color: #495057;
+}
+
+.backups-list {
+    margin-top: 20px;
+}
+
+.backups-list table {
+    width: 100%;
+    margin-top: 10px;
+}
+
+.backups-list th {
+    text-align: left;
+    padding: 8px 12px;
+    background: #f1f1f1;
+    border-bottom: 1px solid #ddd;
+}
+
+.backups-list td {
+    padding: 8px 12px;
+    border-bottom: 1px solid #eee;
+}
+
+/* Import/Export section */
+.import-export-section {
+    padding: 15px;
+    background: #f8f9fa;
+    border-radius: 4px;
+}
+
+.import-export-section::after {
+    content: "";
+    display: table;
+    clear: both;
+}
+
+.export-section,
+.import-section {
+    padding: 15px;
+    background: white;
+    border-radius: 4px;
+    border: 1px solid #dee2e6;
+}
+
+.export-section {
+    float: left;
+    width: 48%;
+}
+
+.import-section {
+    float: right;
+    width: 48%;
+}
+
+.export-section h3,
+.import-section h3 {
+    margin-top: 0;
+    color: #495057;
+    font-size: 14px;
+}
+
+.export-section p,
+.import-section p {
+    color: #6c757d;
+    font-size: 13px;
+    margin-bottom: 15px;
+}
+
+/* Test connection section */
+.mhi-test-connection {
+    padding: 15px 0;
+    margin-top: 20px;
+    border-top: 1px solid #e5e5e5;
+}
+
+.mhi-test-connection h3 {
+    margin-top: 0;
+    color: #495057;
+    font-size: 14px;
+}
+
+/* Form elements */
+.mhi-ai-categories-wrapper .form-table th {
+    width: 200px;
+}
+
+.mhi-ai-categories-wrapper textarea {
+    width: 100%;
+    max-width: 600px;
+}
+
+/* Buttons styling */
+.button-large {
+    font-size: 14px !important;
+    height: auto !important;
+    padding: 8px 16px !important;
+}
+
+.button.button-primary.button-large {
+    background: #0073aa;
+    border-color: #0073aa;
+    color: white;
+    font-weight: 600;
+}
+
+.button.button-primary.button-large:hover {
+    background: #005a87;
+    border-color: #005a87;
+}
+
+.button.button-secondary {
+    color: #555;
+    border-color: #ccc;
+}
+
+.button.button-secondary:hover {
+    color: #333;
+    border-color: #999;
+}
+
+/* Success/Warning/Error styling */
+.notice.notice-success {
+    border-left-color: #00a32a;
+}
+
+.notice.notice-warning {
+    border-left-color: #dba617;
+}
+
+.notice.notice-error {
+    border-left-color: #d63638;
+}
+
+.notice.notice-info {
+    border-left-color: #72aee6;
+}
+
+/* File info styling */
+.mhi-file-info {
+    margin-top: 10px;
+    padding: 10px;
+    background: #f0f0f0;
+    border-radius: 4px;
+}
+
+.mhi-file-info p {
+    margin: 5px 0;
+    font-size: 13px;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+
+    .export-section,
+    .import-section {
+        float: none;
+        width: 100%;
+        margin-bottom: 15px;
+    }
+
+    .import-section {
+        margin-bottom: 0;
+    }
+
+    .subcategories-list {
+        margin-left: 10px;
+    }
+
+    .main-category-item {
+        padding: 10px;
+    }
+
+    .subcategory-item {
+        padding: 8px;
+    }
+}
+
+/* Loading states */
+.mhi-loading {
+    opacity: 0.6;
+    pointer-events: none;
+}
+
+.mhi-loading::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 20px;
+    height: 20px;
+    margin: -10px 0 0 -10px;
+    border: 2px solid #ccc;
+    border-top-color: #0073aa;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Emojis and icons styling */
+.mhi-ai-categories-wrapper .dashicons {
+    vertical-align: middle;
+    margin-right: 5px;
+}
+
+/* Highlights for AI generated content */
+.ai-generated {
+    position: relative;
+}
+
+.ai-generated::before {
+    content: "🤖";
+    position: absolute;
+    top: -5px;
+    right: -5px;
+    font-size: 12px;
+    background: #0073aa;
+    color: white;
+    padding: 2px 4px;
+    border-radius: 3px;
+    font-family: sans-serif;
+}
+
+/* Color coding for different action types */
+.merge-action {
+    border-left-color: #ffc107 !important;
+}
+
+.create-action {
+    border-left-color: #00a32a !important;
+}
+
+.delete-action {
+    border-left-color: #d63638 !important;
+}
