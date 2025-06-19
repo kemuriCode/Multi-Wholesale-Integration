@@ -22,8 +22,6 @@ class ComposerAutoloaderInit6b7a718f1b7b53a21b92507cfa57827a
             return self::$loader;
         }
 
-        require __DIR__ . '/platform_check.php';
-
         spl_autoload_register(array('ComposerAutoloaderInit6b7a718f1b7b53a21b92507cfa57827a', 'loadClassLoader'), true, true);
         self::$loader = $loader = new \Composer\Autoload\ClassLoader(\dirname(__DIR__));
         spl_autoload_unregister(array('ComposerAutoloaderInit6b7a718f1b7b53a21b92507cfa57827a', 'loadClassLoader'));
@@ -31,6 +29,7 @@ class ComposerAutoloaderInit6b7a718f1b7b53a21b92507cfa57827a
         require __DIR__ . '/autoload_static.php';
         call_user_func(\Composer\Autoload\ComposerStaticInit6b7a718f1b7b53a21b92507cfa57827a::getInitializer($loader));
 
+        $loader->setClassMapAuthoritative(true);
         $loader->register(true);
 
         $filesToLoad = \Composer\Autoload\ComposerStaticInit6b7a718f1b7b53a21b92507cfa57827a::$files;

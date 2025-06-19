@@ -1,8 +1,20 @@
 {
     "require": {
+        "php": ">=7.4",
         "phpseclib/phpseclib": "^3.0",
         "openai-php/client": "^0.13.0",
         "php-http/guzzle7-adapter": "^1.1",
         "guzzlehttp/guzzle": "^7.9"
-    }
+    },
+    "config": {
+        "platform-check": false,
+        "allow-plugins": {
+            "*": true
+        },
+        "sort-packages": true,
+        "optimize-autoloader": true,
+        "classmap-authoritative": true
+    },
+    "prefer-stable": true,
+    "minimum-stability": "stable"
 }
