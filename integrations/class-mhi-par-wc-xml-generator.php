@@ -113,6 +113,9 @@ class MHI_Par_WC_XML_Generator
             $this->source_dir = rtrim($source_dir, '/');
         }
 
+        // Upewnij się, że ścieżka jest prawidłowa bez podwójnych slashów
+        $this->source_dir = rtrim($this->source_dir, '/');
+
         echo "Ustawiony katalog źródłowy: {$this->source_dir}\n";
         flush();
         echo "Sprawdzam czy katalog istnieje: " . (file_exists($this->source_dir) ? "TAK" : "NIE") . "\n";
@@ -184,21 +187,22 @@ class MHI_Par_WC_XML_Generator
      */
     public function load_xml_data()
     {
-        echo "Rozpoczynam wczytywanie danych XML z katalogu: {$this->source_dir}\n";
+        if (class_exists('MHI_Logger')) {
+            MHI_Logger::info("PAR - Rozpoczynam wczytywanie danych XML z katalogu: {$this->source_dir}");
+        }
 
         $this->log('debug_summary.txt', 'Rozpoczęcie wczytywania danych XML', false);
         $this->log('debug_load.txt', 'Rozpoczęcie wczytywania danych XML', false);
         $this->log('debug_error.txt', 'Logi błędów podczas wczytywania danych XML', false);
-        $this->log('debug_extract_code.txt', 'Logi ekstrakcji kodów produktów', false);
 
-        // Lista plików, które będą przetwarzane
+        // Lista plików Par (poprawne nazwy)
         $required_files = [
             'produkty' => [
-                'pattern' => 'produkty.xml',
+                'pattern' => 'lista_produktow.xml', // Poprawka: Par używa tego pliku
                 'required' => true
             ],
             'stany' => [
-                'pattern' => 'stany.xml',
+                'pattern' => 'stan_magazynowy.xml', // Poprawka: Par używa tego pliku
                 'required' => true
             ],
             'kategorie' => [
@@ -214,13 +218,17 @@ class MHI_Par_WC_XML_Generator
             $file_found = false;
 
             foreach ($patterns as $pattern) {
-                $file_path = $this->source_dir . '/' . $pattern;
-                echo "Sprawdzam plik: {$file_path} - " . (file_exists($file_path) ? "ISTNIEJE" : "NIE ISTNIEJE") . "\n";
+                $file_path = trailingslashit($this->source_dir) . $pattern;
+
+                // Debug: zapisz dokładną ścieżkę
+                $this->log('debug_load.txt', "Sprawdzam ścieżkę: {$file_path}");
 
                 if (file_exists($file_path)) {
                     $available_files[$key] = $file_path;
                     $this->log('debug_load.txt', "Znaleziono plik: {$pattern} dla klucza {$key}");
-                    echo "Znaleziono plik: {$pattern} dla klucza {$key}\n";
+                    if (class_exists('MHI_Logger')) {
+                        MHI_Logger::info("PAR - Znaleziono plik: {$pattern}");
+                    }
                     $file_found = true;
                     break;
                 }
@@ -230,25 +238,25 @@ class MHI_Par_WC_XML_Generator
                 if ($file_info['required']) {
                     $patterns_str = implode(' lub ', $patterns);
                     $this->log('debug_error.txt', "BŁĄD: Wymagany plik {$patterns_str} nie istnieje!");
-                    echo "BŁĄD: Wymagany plik {$patterns_str} nie istnieje!\n";
+                    if (class_exists('MHI_Logger')) {
+                        MHI_Logger::error("PAR - BŁĄD: Wymagany plik {$patterns_str} nie istnieje!");
+                    }
                     return false;
                 } else {
                     $patterns_str = implode(' lub ', $patterns);
                     $this->log('debug_load.txt', "Plik {$patterns_str} nie istnieje (opcjonalny)");
-                    echo "Plik {$patterns_str} nie istnieje (opcjonalny)\n";
                 }
             }
         }
 
-        // Sprawdzamy, czy mamy przynajmniej plik produkty.xml
+        // Sprawdzamy, czy mamy przynajmniej plik lista_produktow.xml
         if (!isset($available_files['produkty'])) {
-            $this->log('debug_error.txt', "BŁĄD: Brak wymaganego pliku produkty.xml!");
-            echo "BŁĄD: Brak wymaganego pliku produkty.xml!\n";
+            $this->log('debug_error.txt', "BŁĄD: Brak wymaganego pliku lista_produktow.xml!");
+            if (class_exists('MHI_Logger')) {
+                MHI_Logger::error("PAR - BŁĄD: Brak wymaganego pliku lista_produktow.xml!");
+            }
             return false;
         }
-
-        // Logowanie dostępnych plików
-        $this->log('debug_load.txt', "Dostępne pliki: " . print_r($available_files, true));
 
         // Wczytujemy dane kategorii jeśli plik istnieje
         if (isset($available_files['kategorie'])) {
@@ -282,6 +290,9 @@ class MHI_Par_WC_XML_Generator
                 }
 
                 $this->log('debug_load.txt', "Zakończono wczytywanie kategorii. Łącznie: " . count($this->category_map) . " kategorii.");
+                if (class_exists('MHI_Logger')) {
+                    MHI_Logger::info("PAR - Wczytano " . count($this->category_map) . " kategorii");
+                }
             } else {
                 $this->log('debug_error.txt', "OSTRZEŻENIE: Nie można wczytać pliku kategorii!");
             }
@@ -301,8 +312,14 @@ class MHI_Par_WC_XML_Generator
                     }
                 }
                 $this->log('debug_load.txt', "Zakończono wczytywanie stanów magazynowych. Łącznie: " . count($this->stock_data) . " rekordów.");
+                if (class_exists('MHI_Logger')) {
+                    MHI_Logger::info("PAR - Wczytano " . count($this->stock_data) . " stanów magazynowych");
+                }
             } else {
                 $this->log('debug_error.txt', "BŁĄD: Nie można wczytać pliku stanów magazynowych!");
+                if (class_exists('MHI_Logger')) {
+                    MHI_Logger::error("PAR - BŁĄD: Nie można wczytać pliku stanów magazynowych!");
+                }
                 return false;
             }
         } else {
@@ -310,18 +327,20 @@ class MHI_Par_WC_XML_Generator
             return false;
         }
 
-        // Wczytujemy dane produktów
-        // Ponieważ plik produkty.xml może być bardzo duży, używamy XMLReader zamiast simplexml_load_file
+        // Wczytujemy dane produktów używając XMLReader dla dużych plików
         $this->log('debug_load.txt', "Wczytywanie danych produktów...");
         $products_file = $available_files['produkty'];
 
         $reader = new XMLReader();
         if (!$reader->open($products_file)) {
             $this->log('debug_error.txt', "BŁĄD: Nie można otworzyć pliku produktów!");
+            if (class_exists('MHI_Logger')) {
+                MHI_Logger::error("PAR - BŁĄD: Nie można otworzyć pliku produktów!");
+            }
             return false;
         }
 
-        // Przesuwamy się do pierwszego elementu <product>
+        // Przesuwamy się do pierwszego elementu <product> (poprawka struktury Par)
         while ($reader->read() && $reader->name !== 'product')
             ;
 
@@ -337,16 +356,23 @@ class MHI_Par_WC_XML_Generator
 
                 if ($product_count % 1000 === 0) {
                     $this->log('debug_load.txt', "Przetworzono {$product_count} produktów...");
+                    if (class_exists('MHI_Logger')) {
+                        MHI_Logger::info("PAR - Przetworzono {$product_count} produktów...");
+                    }
                 }
             }
 
-            // Przejdź do następnego elementu <product>
+            // Przejdź do następnego elementu <product> (poprawka struktury Par)
             $reader->next('product');
         }
 
         $reader->close();
         $this->product_count = $product_count;
         $this->log('debug_load.txt', "Zakończono wczytywanie produktów. Łącznie: {$product_count} produktów.");
+
+        if (class_exists('MHI_Logger')) {
+            MHI_Logger::info("PAR - Zakończono wczytywanie danych XML. Produkty: {$this->product_count}, Stany: " . count($this->stock_data) . ", Kategorie: " . count($this->category_map));
+        }
 
         $this->log('debug_summary.txt', "Zakończono wczytywanie danych XML. Produkty: {$this->product_count}, Stany: " . count($this->stock_data) . ", Kategorie: " . count($this->category_map));
         return true;
@@ -533,15 +559,33 @@ class MHI_Par_WC_XML_Generator
         // SKU (kod produktu)
         $this->add_xml_element($dom, $item, 'sku', $kod);
 
-        // Nazwa produktu
-        $product_name = (string) $product->nazwa;
+        // Nazwa produktu - sprawdzamy różne możliwe pola
+        $product_name = '';
+        if (!empty($product->nazwa)) {
+            $product_name = (string) $product->nazwa;
+        } elseif (!empty($product->name)) {
+            $product_name = (string) $product->name;
+        } elseif (!empty($product->tytul)) {
+            $product_name = (string) $product->tytul;
+        } else {
+            $product_name = 'Produkt ' . $kod;
+        }
         $this->add_xml_element($dom, $item, 'name', $product_name);
 
-        // Opis produktu
-        $description = (string) $product->opis;
+        // Opis produktu - sprawdzamy różne możliwe pola
+        $description = '';
+        if (!empty($product->opis)) {
+            $description = (string) $product->opis;
+        } elseif (!empty($product->description)) {
+            $description = (string) $product->description;
+        }
+
         if (!empty($product->opis_dodatkowy)) {
             $description .= "\n\n" . (string) $product->opis_dodatkowy;
+        } elseif (!empty($product->opis_pelny)) {
+            $description .= "\n\n" . (string) $product->opis_pelny;
         }
+
         $this->add_xml_element($dom, $item, 'description', $description);
 
         // Krótki opis
@@ -582,7 +626,9 @@ class MHI_Par_WC_XML_Generator
         }
 
         // Kategorie
+        // Kategorie - ulepszone mapowanie
         $categories_string = '';
+
         if (isset($product->kategorie) && isset($product->kategorie->kategoria)) {
             $categories = [];
             foreach ($product->kategorie->kategoria as $category) {
@@ -591,29 +637,48 @@ class MHI_Par_WC_XML_Generator
                     $categories[] = $this->category_path_map[$cat_id];
                 } else {
                     $cat_name = (string) $category;
-                    $categories[] = $cat_name;
+                    if (!empty($cat_name)) {
+                        $categories[] = $cat_name;
+                    }
                 }
             }
             $categories_string = implode(' | ', $categories);
         }
 
+        // Dodaj kategorie główne jeśli nie ma podkategorii
+        if (empty($categories_string) && isset($product->kategoria_id)) {
+            $cat_id = (string) $product->kategoria_id;
+            if (isset($this->category_path_map[$cat_id])) {
+                $categories_string = $this->category_path_map[$cat_id];
+            }
+        }
+
         if (!empty($categories_string)) {
             $this->add_xml_element($dom, $item, 'categories', $categories_string);
         } else {
-            $this->add_xml_element($dom, $item, 'categories', 'Bez kategorii');
+            $this->add_xml_element($dom, $item, 'categories', 'Gadżety reklamowe');
         }
 
         // Dodajemy atrybuty
         $attributes_element = $dom->createElement('attributes');
         $item->appendChild($attributes_element);
 
-        // Atrybut Kolor
+        // Atrybut Kolor - sprawdzamy różne pola
+        $color_value = '';
         if (!empty($product->kolor_podstawowy)) {
+            $color_value = (string) $product->kolor_podstawowy;
+        } elseif (!empty($product->kolor)) {
+            $color_value = (string) $product->kolor;
+        } elseif (!empty($product->color)) {
+            $color_value = (string) $product->color;
+        }
+
+        if (!empty($color_value)) {
             $color_attribute = $dom->createElement('attribute');
             $attributes_element->appendChild($color_attribute);
 
             $this->add_xml_element($dom, $color_attribute, 'name', 'Kolor');
-            $this->add_xml_element($dom, $color_attribute, 'value', (string) $product->kolor_podstawowy);
+            $this->add_xml_element($dom, $color_attribute, 'value', $color_value);
             $this->add_xml_element($dom, $color_attribute, 'visible', '1');
             $this->add_xml_element($dom, $color_attribute, 'global', '1');
         }
@@ -713,8 +778,11 @@ class MHI_Par_WC_XML_Generator
      */
     private function add_xml_element($dom, $parent, $name, $value)
     {
+        // Oczyść wartość przed dodaniem
+        $clean_value = $this->clean_html($value);
+
         $element = $dom->createElement($name);
-        $text = $dom->createTextNode($value);
+        $text = $dom->createTextNode($clean_value);
         $element->appendChild($text);
         $parent->appendChild($element);
         return $element;

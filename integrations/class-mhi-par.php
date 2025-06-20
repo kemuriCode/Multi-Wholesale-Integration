@@ -379,16 +379,37 @@ class MHI_Par implements MHI_Integration_Interface
     {
         try {
             if (class_exists('MHI_Logger')) {
-                MHI_Logger::info("Rozpoczęcie generowania pliku XML dla WooCommerce (hurtownia {$this->name})");
+                MHI_Logger::info("PAR - Rozpoczęcie generowania pliku XML dla WooCommerce");
             }
 
-            // Sprawdź czy katalog uploads/wholesale/{$this->name} istnieje
+            // Sprawdź czy katalog uploads/wholesale/par istnieje
             $upload_dir = wp_upload_dir();
             $hurtownia_dir = $upload_dir['basedir'] . "/wholesale/{$this->name}/";
 
             if (!file_exists($hurtownia_dir)) {
                 if (class_exists('MHI_Logger')) {
-                    MHI_Logger::error("Błąd: Katalog {$hurtownia_dir} nie istnieje.");
+                    MHI_Logger::error("PAR - Błąd: Katalog {$hurtownia_dir} nie istnieje.");
+                }
+                return false;
+            }
+
+            // Sprawdź czy wymagane pliki istnieją
+            $required_files = [
+                'lista_produktow.xml',
+                'stan_magazynowy.xml',
+                'kategorie.xml'
+            ];
+
+            $missing_files = [];
+            foreach ($required_files as $file) {
+                if (!file_exists($hurtownia_dir . $file)) {
+                    $missing_files[] = $file;
+                }
+            }
+
+            if (!empty($missing_files)) {
+                if (class_exists('MHI_Logger')) {
+                    MHI_Logger::error("PAR - Brakujące pliki: " . implode(', ', $missing_files));
                 }
                 return false;
             }
@@ -402,18 +423,18 @@ class MHI_Par implements MHI_Integration_Interface
 
             if ($result) {
                 if (class_exists('MHI_Logger')) {
-                    MHI_Logger::info("Pomyślnie wygenerowano plik XML dla hurtowni {$this->name}");
+                    MHI_Logger::info("PAR - Pomyślnie wygenerowano plik XML");
                 }
                 return true;
             } else {
                 if (class_exists('MHI_Logger')) {
-                    MHI_Logger::error("Błąd: Nie udało się wygenerować pliku XML dla hurtowni {$this->name}.");
+                    MHI_Logger::error("PAR - Błąd: Nie udało się wygenerować pliku XML.");
                 }
                 return false;
             }
         } catch (Exception $e) {
             if (class_exists('MHI_Logger')) {
-                MHI_Logger::error("Wyjątek podczas generowania XML dla hurtowni {$this->name}: " . $e->getMessage());
+                MHI_Logger::error("PAR - Wyjątek podczas generowania XML: " . $e->getMessage());
             }
             return false;
         }

@@ -167,9 +167,15 @@ class MHI_Hurtownia_4 implements MHI_Integration_Interface
 
                 if ($this->config['protocol'] === 'sftp') {
                     // Pobieranie SFTP
-                    if (!ssh2_scp_recv($connection, $remote_path, $local_path)) {
-                        MHI_Logger::error('Nie udało się pobrać pliku przez SFTP: ' . $remote_path);
-                        continue;
+                    if (function_exists('ssh2_scp_recv')) {
+                        /** @noinspection PhpUndefinedFunctionInspection */
+                        if (!ssh2_scp_recv($connection, $remote_path, $local_path)) {
+                            MHI_Logger::error('Nie udało się pobrać pliku przez SFTP: ' . $remote_path);
+                            continue;
+                        }
+                    } else {
+                        MHI_Logger::error('Rozszerzenie SSH2 nie jest dostępne w PHP');
+                        return false;
                     }
                 } else {
                     // Pobieranie FTP
@@ -184,7 +190,10 @@ class MHI_Hurtownia_4 implements MHI_Integration_Interface
 
             // Zamknij połączenie
             if ($this->config['protocol'] === 'sftp') {
-                ssh2_disconnect($connection);
+                if (function_exists('ssh2_disconnect')) {
+                    /** @noinspection PhpUndefinedFunctionInspection */
+                    ssh2_disconnect($connection);
+                }
             } else {
                 ftp_close($connection);
             }
@@ -329,6 +338,7 @@ class MHI_Hurtownia_4 implements MHI_Integration_Interface
             }
 
             // Nawiąż połączenie
+            /** @noinspection PhpUndefinedFunctionInspection */
             $connection = ssh2_connect($this->config['xml_host'], $this->config['port']);
 
             if (!$connection) {
@@ -337,12 +347,14 @@ class MHI_Hurtownia_4 implements MHI_Integration_Interface
             }
 
             // Uwierzytelnianie
+            /** @noinspection PhpUndefinedFunctionInspection */
             if (!ssh2_auth_password($connection, $this->config['xml_username'], $this->config['xml_password'])) {
                 MHI_Logger::error('Nie udało się zalogować do serwera SFTP. Sprawdź dane logowania.');
                 return false;
             }
 
             // Inicjalizacja SFTP
+            /** @noinspection PhpUndefinedFunctionInspection */
             $sftp = ssh2_sftp($connection);
 
             if (!$sftp) {

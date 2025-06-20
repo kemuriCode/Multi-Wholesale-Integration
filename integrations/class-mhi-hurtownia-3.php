@@ -377,6 +377,27 @@ class MHI_Hurtownia_3 implements MHI_Integration_Interface
                 return false;
             }
 
+            // Sprawdź czy wymagane pliki istnieją
+            $required_files = [
+                'lista_produktow.xml',
+                'stan_magazynowy.xml',
+                'kategorie.xml'
+            ];
+
+            $missing_files = [];
+            foreach ($required_files as $file) {
+                if (!file_exists($hurtownia_dir . $file)) {
+                    $missing_files[] = $file;
+                }
+            }
+
+            if (!empty($missing_files)) {
+                if (class_exists('MHI_Logger')) {
+                    MHI_Logger::error("PAR - Brakujące pliki: " . implode(', ', $missing_files));
+                }
+                return false;
+            }
+
             // Utwórz generator XML
             require_once MHI_PLUGIN_DIR . 'integrations/class-mhi-par-wc-xml-generator.php';
             $generator = new MHI_Par_WC_XML_Generator($hurtownia_dir);
