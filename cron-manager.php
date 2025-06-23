@@ -227,6 +227,8 @@ if (is_dir($wholesale_dir)) {
             <p><strong>Stage 2:</strong> 🏷️ Dodaje atrybuty i generuje warianty produktów</p>
             <p><strong>Stage 3:</strong> 📷 Importuje i konwertuje obrazy do WebP</p>
             <p><strong>💡 Tip:</strong> Uruchamiaj stage'y po kolei. Każdy następny wymaga ukończenia poprzedniego.</p>
+            <p><strong>🔄 Nadpisz dane:</strong> Zaznacz aby aktualizować istniejące produkty (domyślnie: tylko nowe)
+            </p>
         </div>
 
         <?php if (empty($suppliers)): ?>
@@ -282,6 +284,11 @@ if (is_dir($wholesale_dir)) {
                                 <span class="control-label">Max produktów:</span>
                                 <input type="number" class="control-input max-products-input" value="0" min="0"
                                     placeholder="0 = bez limitu" data-supplier="<?php echo $supplier; ?>">
+                            </div>
+                            <div class="control-row">
+                                <span class="control-label">Nadpisz dane:</span>
+                                <input type="checkbox" class="control-input force-update-check"
+                                    data-supplier="<?php echo $supplier; ?>"> Aktualizuj istniejące
                             </div>
                         </div>
 
@@ -369,8 +376,13 @@ if (is_dir($wholesale_dir)) {
             const offset = document.querySelector(`input.offset-input[data-supplier="${supplier}"]`).value;
             const autoContinue = document.querySelector(`input.auto-continue-check[data-supplier="${supplier}"]`).checked;
             const maxProducts = document.querySelector(`input.max-products-input[data-supplier="${supplier}"]`).value;
+            const forceUpdate = document.querySelector(`input.force-update-check[data-supplier="${supplier}"]`).checked;
 
             let url = `cron-import.php?supplier=${supplier}&stage=${stage}&batch_size=${batchSize}&offset=${offset}`;
+
+            if (forceUpdate) {
+                url += '&force_update=1';
+            }
 
             if (autoContinue) {
                 url += '&auto_continue=1';
@@ -385,11 +397,14 @@ if (is_dir($wholesale_dir)) {
         function runAutoSequence(supplier) {
             if (confirm(`Czy na pewno chcesz uruchomić wszystkie 3 stage'y dla ${supplier}?\n\nTo może zająć dużo czasu!`)) {
                 const batchSize = document.querySelector(`select.batch-size[data-supplier="${supplier}"]`).value;
+                const forceUpdate = document.querySelector(`input.force-update-check[data-supplier="${supplier}"]`).checked;
+
+                const forceParam = forceUpdate ? '&force_update=1' : '';
 
                 // Otwórz wszystkie 3 stage'y w nowych kartach
-                setTimeout(() => window.open(`cron-import.php?supplier=${supplier}&stage=1&batch_size=${batchSize}`, '_blank'), 0);
-                setTimeout(() => window.open(`cron-import.php?supplier=${supplier}&stage=2&batch_size=${batchSize}`, '_blank'), 2000);
-                setTimeout(() => window.open(`cron-import.php?supplier=${supplier}&stage=3&batch_size=${batchSize}`, '_blank'), 4000);
+                setTimeout(() => window.open(`cron-import.php?supplier=${supplier}&stage=1&batch_size=${batchSize}${forceParam}`, '_blank'), 0);
+                setTimeout(() => window.open(`cron-import.php?supplier=${supplier}&stage=2&batch_size=${batchSize}${forceParam}`, '_blank'), 2000);
+                setTimeout(() => window.open(`cron-import.php?supplier=${supplier}&stage=3&batch_size=${batchSize}${forceParam}`, '_blank'), 4000);
             }
         }
 
@@ -408,7 +423,11 @@ if (is_dir($wholesale_dir)) {
 
                 suppliers.forEach((supplier, index) => {
                     setTimeout(() => {
-                        const url = `cron-import.php?supplier=${supplier}&stage=${stage}&batch_size=50&auto_continue=1`;
+                        // Sprawdź ustawienia force_update dla pierwszej hurtowni (jako wzorzec)
+                        const firstSupplierForceUpdate = document.querySelector(`input.force-update-check[data-supplier="${suppliers[0]}"]`)?.checked || false;
+                        const forceParam = firstSupplierForceUpdate ? '&force_update=1' : '';
+
+                        const url = `cron-import.php?supplier=${supplier}&stage=${stage}&batch_size=50&auto_continue=1${forceParam}`;
                         window.open(url, '_blank');
 
                         // Pokaż komunikat postępu
