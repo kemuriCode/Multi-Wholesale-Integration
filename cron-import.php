@@ -17,6 +17,7 @@
  * - batch_size=50 (ilość produktów na raz, domyślnie 50)
  * - admin_key=mhi_import_access (alternatywa dla uprawnień)
  * - test_xml=1 (użyj test_gallery.xml zamiast głównego pliku)
+ * - force_update=1 (aktualizuj istniejące produkty - wszystkie stage'y)
  * - replace_images=1 (zastąp istniejące obrazy galerii - tylko stage 3)
  * - offset=0 (rozpocznij od konkretnego produktu)
  * - auto_continue=1 (automatycznie kontynuuj następny batch)
@@ -53,9 +54,10 @@ $batch_size = isset($_GET['batch_size']) ? (int) $_GET['batch_size'] : 50;
 $offset = isset($_GET['offset']) ? (int) $_GET['offset'] : 0;
 $auto_continue = isset($_GET['auto_continue']) && $_GET['auto_continue'] === '1';
 $max_products = isset($_GET['max_products']) ? (int) $_GET['max_products'] : 0;
+$force_update = isset($_GET['force_update']) && $_GET['force_update'] === '1';
 
 // Logowanie parametrów
-error_log("MHI Import: supplier=$supplier, stage=$stage, batch_size=$batch_size, offset=$offset, auto_continue=" . ($auto_continue ? 'TRUE' : 'FALSE'));
+error_log("MHI Import: supplier=$supplier, stage=$stage, batch_size=$batch_size, offset=$offset, auto_continue=" . ($auto_continue ? 'TRUE' : 'FALSE') . ", force_update=" . ($force_update ? 'TRUE' : 'FALSE'));
 
 if (!in_array($stage, [1, 2, 3])) {
     wp_die('Stage musi być 1, 2 lub 3!');
@@ -656,9 +658,11 @@ $start_time = microtime(true);
     
     function process_stage_1($product_xml, $sku, $name, $supplier)
     {
-        // Sprawdź czy produkt już ma Stage 1
+        global $force_update;
+
+        // Sprawdź czy produkt już ma Stage 1 (tylko jeśli force_update wyłączony)
         $product_id = wc_get_product_id_by_sku($sku);
-        if ($product_id && get_post_meta($product_id, '_mhi_stage_1_done', true) === 'yes') {
+        if ($product_id && get_post_meta($product_id, '_mhi_stage_1_done', true) === 'yes' && !$force_update) {
             return 'skipped';
         }
 
@@ -794,18 +798,20 @@ $start_time = microtime(true);
 
     function process_stage_2($product_xml, $sku, $name)
     {
+        global $force_update;
+
         $product_id = wc_get_product_id_by_sku($sku);
         if (!$product_id)
             return false;
 
-        // Sprawdź czy Stage 1 został ukończony
+        // Sprawdź czy Stage 1 został ukończony (zawsze wymagane)
         if (get_post_meta($product_id, '_mhi_stage_1_done', true) !== 'yes') {
             addLog("⚠️ Stage 2: Stage 1 nie został ukończony - pomijam", "warning");
             return 'skipped';
         }
 
-        // Sprawdź czy Stage 2 już ukończony
-        if (get_post_meta($product_id, '_mhi_stage_2_done', true) === 'yes') {
+        // Sprawdź czy Stage 2 już ukończony (tylko jeśli force_update wyłączony)
+        if (get_post_meta($product_id, '_mhi_stage_2_done', true) === 'yes' && !$force_update) {
             return 'skipped';
         }
 
@@ -966,8 +972,9 @@ $start_time = microtime(true);
             return 'skipped';
         }
 
-        // Sprawdź czy Stage 3 już ukończony
-        if ($stage_3_done === 'yes') {
+        // Sprawdź czy Stage 3 już ukończony (tylko jeśli force_update wyłączony)
+        global $force_update;
+        if ($stage_3_done === 'yes' && !$force_update) {
             addLog("⏭️ Stage 3 już ukończony dla $sku", "info");
             return 'skipped';
         }
@@ -995,9 +1002,9 @@ $start_time = microtime(true);
 
             addLog("📸 Liczba obrazów do przetworzenia: " . count($images), "info");
 
-            if (isset($_GET['replace_images']) && $_GET['replace_images'] === '1') {
+            if ((isset($_GET['replace_images']) && $_GET['replace_images'] === '1') || $force_update) {
                 clean_product_gallery($product_id, false);
-                addLog("🗑️ Wyczyszczono istniejące obrazy", "info");
+                addLog("🗑️ Wyczyszczono istniejące obrazy (force_update lub replace_images)", "info");
             }
 
             $gallery_result = import_product_gallery($images, $product_id);
