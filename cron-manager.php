@@ -318,6 +318,23 @@ if (is_dir($wholesale_dir)) {
             </div>
 
             <div class="info-panel">
+                <h3>🚀 Masowe operacje</h3>
+                <p>
+                    <button type="button" class="auto-run" onclick="runAllSuppliersStage(1)"
+                        style="background: #007bff; margin: 5px;">
+                        📦 Uruchom Stage 1 dla wszystkich
+                    </button>
+                    <button type="button" class="auto-run" onclick="runAllSuppliersStage(2)"
+                        style="background: #6f42c1; margin: 5px;">
+                        🏷️ Uruchom Stage 2 dla wszystkich
+                    </button>
+                    <button type="button" class="auto-run" onclick="runAllSuppliersStage(3)"
+                        style="background: #28a745; margin: 5px;">
+                        📷 Uruchom Stage 3 dla wszystkich
+                    </button>
+                </p>
+                <p><small>💡 Uruchamia wybrany stage dla wszystkich hurtowni z auto-continue</small></p>
+
                 <h3>🔧 Dodatkowe narzędzia</h3>
                 <p>
                     <a href="?action=reset_stages" style="color: #dc3545; font-weight: bold;">
@@ -373,6 +390,35 @@ if (is_dir($wholesale_dir)) {
                 setTimeout(() => window.open(`cron-import.php?supplier=${supplier}&stage=1&batch_size=${batchSize}`, '_blank'), 0);
                 setTimeout(() => window.open(`cron-import.php?supplier=${supplier}&stage=2&batch_size=${batchSize}`, '_blank'), 2000);
                 setTimeout(() => window.open(`cron-import.php?supplier=${supplier}&stage=3&batch_size=${batchSize}`, '_blank'), 4000);
+            }
+        }
+
+        function runAllSuppliersStage(stage) {
+            const suppliers = <?php echo json_encode($suppliers); ?>;
+
+            if (suppliers.length === 0) {
+                alert('❌ Brak dostępnych hurtowni!');
+                return;
+            }
+
+            const stageNames = { 1: 'Stage 1 (📦 Produkty)', 2: 'Stage 2 (🏷️ Atrybuty)', 3: 'Stage 3 (📷 Obrazy)' };
+
+            if (confirm(`🚀 Uruchomić ${stageNames[stage]} dla wszystkich ${suppliers.length} hurtowni?\n\n⚠️ To otworzy ${suppliers.length} nowych kart z auto-continue!`)) {
+                let delay = 0;
+
+                suppliers.forEach((supplier, index) => {
+                    setTimeout(() => {
+                        const url = `cron-import.php?supplier=${supplier}&stage=${stage}&batch_size=50&auto_continue=1`;
+                        window.open(url, '_blank');
+
+                        // Pokaż komunikat postępu
+                        if (index === 0) {
+                            alert(`✅ Uruchamianie ${stageNames[stage]} dla wszystkich hurtowni...\n\n🔄 Auto-restart jest aktywny!`);
+                        }
+                    }, delay);
+
+                    delay += 3000; // 3 sekundy między uruchomieniami
+                });
             }
         }
 

@@ -46,6 +46,13 @@ class MHI_Plugin
         // Ładowanie klasy cron
         require_once MHI_PLUGIN_DIR . 'includes/class-mhi-cron.php';
 
+        // Ładowanie klas AI kategorii
+        require_once MHI_PLUGIN_DIR . 'includes/class-mhi-logger.php';
+        require_once MHI_PLUGIN_DIR . 'includes/class-mhi-ai-category-analyzer.php';
+        require_once MHI_PLUGIN_DIR . 'includes/class-mhi-category-ai-optimizer.php';
+        require_once MHI_PLUGIN_DIR . 'includes/class-mhi-category-mapping-editor.php';
+        require_once MHI_PLUGIN_DIR . 'includes/class-mhi-category-manager.php';
+
         // Ładowanie klas integracji z hurtowniami
         require_once MHI_PLUGIN_DIR . 'integrations/class-mhi-hurtownia-1.php';
         require_once MHI_PLUGIN_DIR . 'integrations/class-mhi-hurtownia-2.php';
@@ -69,6 +76,11 @@ class MHI_Plugin
         // Inicjalizacja zadań cron
         $cron = new MHI_Cron();
         $cron->init();
+
+        // Inicjalizacja menedżera kategorii AI
+        if (class_exists('MHI_Category_Manager')) {
+            MHI_Category_Manager::get_instance();
+        }
 
         // Obsługa AJAX dla pobierania statusu pobierania
         add_action('wp_ajax_mhi_get_download_status', array($this, 'ajax_get_download_status'));
@@ -358,7 +370,7 @@ class MHI_Plugin
         add_action('mhi_media_cleanup_event', array($cron, 'cleanup_empty_media'));
 
         // Zaplanuj zadania cron
-        $cron->schedule_events();
+        // Metoda schedule_tasks jest prywatna i wywoływana automatycznie w init()
 
         // Zaplanuj zadanie czyszczenia mediów
         $cron->schedule_media_cleanup();

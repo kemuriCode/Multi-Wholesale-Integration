@@ -3,11 +3,18 @@
  * Komendy WP-CLI dla Multi Wholesale Integration
  *
  * @package MHI
+ * @noinspection PhpUndefinedClassInspection
+ * @noinspection PhpUndefinedConstantInspection
  */
 
 // Zabezpieczenie przed bezpośrednim dostępem
 if (!defined('ABSPATH')) {
     exit;
+}
+
+// Guard - sprawdź czy WP-CLI jest dostępne
+if (!defined('WP_CLI') || !WP_CLI) {
+    return;
 }
 
 /**
@@ -22,11 +29,17 @@ class MHI_CLI_Commands
      */
     public static function init()
     {
-        if (defined('WP_CLI') && WP_CLI) {
-            WP_CLI::add_command('mhi import', [__CLASS__, 'import_products']);
-            WP_CLI::add_command('mhi status', [__CLASS__, 'import_status']);
-            WP_CLI::add_command('mhi schedule', [__CLASS__, 'manage_schedule']);
+        // Sprawdź czy WP-CLI jest dostępne
+        if (!defined('WP_CLI') || !WP_CLI) {
+            return;
         }
+
+        /** @noinspection PhpUndefinedClassInspection */
+        WP_CLI::add_command('mhi import', [__CLASS__, 'import_products']);
+        /** @noinspection PhpUndefinedClassInspection */
+        WP_CLI::add_command('mhi status', [__CLASS__, 'import_status']);
+        /** @noinspection PhpUndefinedClassInspection */
+        WP_CLI::add_command('mhi schedule', [__CLASS__, 'manage_schedule']);
     }
 
     /**

@@ -27,7 +27,7 @@ declare(strict_types=1);
 
 // Zwiększ limity wykonania
 ini_set('memory_limit', '1024M');
-set_time_limit(300); // 5 minut na stage
+set_time_limit(600); // 10 minut na stage
 ignore_user_abort(true);
 
 // Wyświetlaj błędy
@@ -368,6 +368,75 @@ $start_time = microtime(true);
         }
 
         addLog('🔧 System gotowy do przetwarzania Stage <?php echo $stage; ?>', 'info');
+
+        // 🔄 AUTO-RESTART SYSTEM - zapobiega zawieszeniu
+        let lastUpdateTime = Date.now();
+        let restartTimer = null;
+        let isProcessing = false;
+
+        // Funkcja do restartu z różnymi timeoutami dla stage'ów
+        function autoRestart() {
+            if (isProcessing) {
+                const timeSinceUpdate = Date.now() - lastUpdateTime;
+
+                // RÓŻNE TIMEOUTY DLA RÓŻNYCH STAGE'ÓW
+                let maxIdleTime;
+                if (<?php echo $stage; ?> === 3) {
+                    maxIdleTime = 600000; // Stage 3 (zdjęcia): 10 minut bez aktualizacji 
+                    console.log('🖼️ Stage 3: Timeout ustawiony na 10 minut dla zdjęć');
+                } else if (<?php echo $stage; ?> === 2) {
+                    maxIdleTime = 300000; // Stage 2 (atrybuty): 5 minut bez aktualizacji
+                    console.log('🏷️ Stage 2: Timeout ustawiony na 5 minut dla atrybutów');
+                } else {
+                    maxIdleTime = 180000; // Stage 1 (produkty): 3 minuty bez aktualizacji
+                    console.log('📦 Stage 1: Timeout ustawiony na 3 minuty dla produktów');
+                }
+
+                if (timeSinceUpdate > maxIdleTime) {
+                    const timeoutMinutes = Math.round(maxIdleTime / 60000);
+                    addLog(`⚠️ Wykryto zawieszenie! Brak aktywności przez ${timeoutMinutes} minut. Auto-restart za 10 sekund...`, 'warning');
+                    setTimeout(() => {
+                        addLog('🔄 Restartowanie procesu...', 'info');
+                        // Zachowaj obecne parametry ale kontynuuj z aktualnego offsetu
+                        const currentOffset = <?php echo $offset; ?> + stats.processed;
+                        const url = new URL(window.location);
+                        url.searchParams.set('offset', currentOffset);
+                        window.location.href = url.toString();
+                    }, 10000);
+                    return;
+                }
+            }
+
+            // Sprawdzaj co 60 sekund (zamiast 30) - mniej agresywne
+            restartTimer = setTimeout(autoRestart, 60000);
+        }
+
+        // Funkcja aktualizująca timestamp
+        function markActivity() {
+            lastUpdateTime = Date.now();
+        }
+
+        // Zastąp oryginalną funkcję addLog
+        const originalAddLog = addLog;
+        addLog = function (message, type = 'info') {
+            markActivity(); // Każdy log = aktywność
+            return originalAddLog(message, type);
+        };
+
+        // Uruchom system monitorowania po starcie procesu
+        setTimeout(() => {
+            isProcessing = true;
+            autoRestart();
+
+            // Różne komunikaty dla różnych stage'ów
+            if (<?php echo $stage; ?> === 3) {
+                addLog('🛡️ Auto-restart aktywny (Stage 3: restart po 10 min bezczynności)', 'info');
+            } else if (<?php echo $stage; ?> === 2) {
+                addLog('🛡️ Auto-restart aktywny (Stage 2: restart po 5 min bezczynności)', 'info');
+            } else {
+                addLog('🛡️ Auto-restart aktywny (Stage 1: restart po 3 min bezczynności)', 'info');
+            }
+        }, 5000);
     </script>
 
     <?php
@@ -762,9 +831,6 @@ $start_time = microtime(true);
                         continue;
 
                     delete_transient('wc_attribute_taxonomies');
-                    if (function_exists('wc_create_attribute_taxonomies')) {
-                        wc_create_attribute_taxonomies();
-                    }
                 }
 
                 if (!taxonomy_exists($taxonomy)) {
@@ -1098,6 +1164,7 @@ $start_time = microtime(true);
             }
 
             addLog("📥 Importuję obraz [$index]: $image_url", "info");
+            addLog("⏳ Stage 3 aktywny - przetwarzam obraz " . ($index + 1) . "/" . count($images), "info");
             $is_featured = ($index === 0);
             $attachment_id = import_product_image($image_url, $product_id, $is_featured);
 
@@ -1153,8 +1220,9 @@ $start_time = microtime(true);
 
         // Pobierz obraz
         addLog("🌐 Pobieram obraz z: $image_url", "info");
+        addLog("⏳ Stage 3: pobieranie obrazu z serwera (timeout 60s)...", "info");
         $response = wp_remote_get($image_url, [
-            'timeout' => 30,
+            'timeout' => 60, // Zwiększony timeout dla Stage 3 (zdjęcia)
             'sslverify' => false,
             'user-agent' => 'Mozilla/5.0 (compatible; WordPressBot/1.0)'
         ]);

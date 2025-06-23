@@ -248,14 +248,14 @@ class MHI_ANDA_WC_XML_Generator
     }
 
     /**
-     * Generuje wszystkie pliki XML ANDA dla WooCommerce.
+     * Generuje KOMPLETNY plik XML ANDA dla WooCommerce z wszystkimi danymi.
      *
      * @return array Status operacji
      */
     public function generate_all_xml_files()
     {
         try {
-            error_log('MHI ANDA: Rozpoczynam rozszerzone generowanie plików XML');
+            error_log('MHI ANDA: Rozpoczynam KOMPLETNE generowanie pliku XML z wszystkimi danymi');
 
             $this->log_memory_usage('Początek generowania');
 
@@ -273,32 +273,25 @@ class MHI_ANDA_WC_XML_Generator
             $this->load_all_data();
             $this->log_memory_usage('Po wczytaniu danych');
 
-            $results = [];
+            // Generuj pliki ze wszystkimi danymi
+            $products_result = $this->generate_products_xml();
+            $categories_result = $this->generate_categories_xml();
+            $printing_result = $this->generate_printing_services_xml();
 
-            // Generuj plik z produktami
-            $results['products'] = $this->generate_products_xml();
-            $this->log_memory_usage('Po wygenerowaniu produktów');
+            $this->log_memory_usage('Po wygenerowaniu wszystkich plików');
 
-            // Zwolnij część pamięci
-            unset($this->products_data);
-            gc_collect_cycles();
-
-            // Generuj plik z kategoriami
-            $results['categories'] = $this->generate_categories_xml();
-            $this->log_memory_usage('Po wygenerowaniu kategorii');
-
-            // Generuj plik z usługami druku
-            $results['printing_services'] = $this->generate_printing_services_xml();
-            $this->log_memory_usage('Po wygenerowaniu usług druku');
-
-            // Zwolnij resztę pamięci
-            unset($this->categories_data, $this->printing_prices_data);
+            // Zwolnij pamięć
+            unset($this->products_data, $this->categories_data, $this->printing_prices_data);
             gc_collect_cycles();
 
             return [
                 'success' => true,
-                'message' => 'Wszystkie pliki XML zostały wygenerowane',
-                'results' => $results
+                'message' => 'Wszystkie pliki XML zostały wygenerowane z kompletnymi danymi ANDA',
+                'results' => [
+                    'products' => $products_result,
+                    'categories' => $categories_result,
+                    'printing_prices' => $printing_result
+                ]
             ];
 
         } catch (Exception $e) {
@@ -385,12 +378,44 @@ class MHI_ANDA_WC_XML_Generator
                 throw new Exception("Nie można wczytać pliku categories.xml");
             }
 
-            return $this->xml_to_array($xml);
+            // Konwertuj XML na tablicę z pełną hierarchią
+            $categories_array = [];
+            if (isset($xml->category)) {
+                foreach ($xml->category as $category) {
+                    $categories_array[] = $this->parse_category_recursive($category);
+                }
+            }
+
+            error_log("MHI ANDA: Wczytano " . count($categories_array) . " głównych kategorii");
+            return $categories_array;
 
         } catch (Exception $e) {
             error_log("MHI ANDA ERROR: Błąd podczas wczytywania categories.xml: " . $e->getMessage());
             return [];
         }
+    }
+
+    /**
+     * Rekurencyjnie parsuje kategorie z XML.
+     *
+     * @param SimpleXMLElement $category
+     * @return array
+     */
+    private function parse_category_recursive($category)
+    {
+        $result = [
+            'id' => (string) $category->externalId,
+            'name' => (string) $category->name,
+            'children' => []
+        ];
+
+        if (isset($category->children->category)) {
+            foreach ($category->children->category as $child) {
+                $result['children'][] = $this->parse_category_recursive($child);
+            }
+        }
+
+        return $result;
     }
 
     /**
@@ -400,8 +425,40 @@ class MHI_ANDA_WC_XML_Generator
     {
         $this->flat_categories = [];
 
-        if (!empty($this->categories_data['category'])) {
-            $this->flatten_categories($this->categories_data['category']);
+        if (!empty($this->categories_data)) {
+            foreach ($this->categories_data as $category) {
+                $this->flatten_categories_new($category);
+            }
+        }
+    }
+
+    /**
+     * Nowa metoda do spłaszczania hierarchii kategorii.
+     *
+     * @param array $category
+     * @param string $parent_path
+     */
+    private function flatten_categories_new($category, $parent_path = '')
+    {
+        if (!isset($category['id']))
+            return;
+
+        $category_id = $category['id'];
+        $category_name = $category['name'];
+        $full_path = $parent_path ? $parent_path . ' > ' . $category_name : $category_name;
+
+        $this->flat_categories[$category_id] = [
+            'id' => $category_id,
+            'name' => $category_name,
+            'path' => $full_path,
+            'parent_path' => $parent_path
+        ];
+
+        // Recursively process children
+        if (!empty($category['children'])) {
+            foreach ($category['children'] as $child) {
+                $this->flatten_categories_new($child, $full_path);
+            }
         }
     }
 
@@ -642,6 +699,73 @@ class MHI_ANDA_WC_XML_Generator
     }
 
     /**
+     * Generuje KOMPLETNY plik XML dla WooCommerce z wszystkimi danymi ANDA.
+     *
+     * @return array Status operacji
+     */
+    private function generate_complete_woocommerce_xml()
+    {
+        error_log("MHI ANDA: Generuję KOMPLETNY plik XML z wszystkimi danymi ANDA");
+
+        $xml = new DOMDocument('1.0', 'UTF-8');
+        $xml->formatOutput = true;
+
+        // Główny element
+        $root = $xml->createElement('woocommerce_import');
+        $xml->appendChild($root);
+
+        // Dodaj informacje o źródle danych
+        $info = $xml->createElement('import_info');
+        $this->add_xml_element($xml, $info, 'source', 'ANDA Wholesale');
+        $this->add_xml_element($xml, $info, 'generated', date('Y-m-d H:i:s'));
+        $this->add_xml_element($xml, $info, 'total_products', count($this->products_data));
+        $this->add_xml_element($xml, $info, 'total_categories', count($this->flat_categories));
+        $this->add_xml_element($xml, $info, 'total_printing_technologies', count($this->printing_prices_data));
+        $root->appendChild($info);
+
+        // Sekcja produktów
+        $products_section = $xml->createElement('products');
+        $root->appendChild($products_section);
+
+        $count = 0;
+        $batch_size = 50;
+        $processed = 0;
+
+        foreach ($this->products_data as $item_number => $product) {
+            $product_element = $this->create_complete_product_element($xml, $product, $item_number);
+            if ($product_element) {
+                $products_section->appendChild($product_element);
+                $count++;
+            }
+
+            $processed++;
+
+            // Zwolnij pamięć co batch_size elementów
+            if ($processed % $batch_size === 0) {
+                unset($product, $product_element);
+                gc_collect_cycles();
+                error_log("MHI ANDA: Przetworzono $processed produktów...");
+            }
+        }
+
+        // Zapisz plik
+        $filename = 'anda_complete_import.xml';
+        $file_path = $this->target_dir . '/' . $filename;
+
+        if ($xml->save($file_path)) {
+            error_log("MHI ANDA: Wygenerowano KOMPLETNY plik z $count produktami: $filename");
+
+            // Zwolnij pamięć po zapisaniu
+            unset($xml, $root);
+            gc_collect_cycles();
+
+            return ['success' => true, 'file' => $filename, 'count' => $count];
+        } else {
+            throw new Exception("Nie można zapisać pliku $filename");
+        }
+    }
+
+    /**
      * Generuje plik XML z produktami dla WooCommerce w standardowej strukturze.
      *
      * @return array Status operacji
@@ -696,6 +820,73 @@ class MHI_ANDA_WC_XML_Generator
     }
 
     /**
+     * Tworzy KOMPLETNY element produktu ze wszystkimi danymi ANDA.
+     *
+     * @param DOMDocument $xml
+     * @param array $product
+     * @param string $item_number
+     * @return DOMElement|null
+     */
+    private function create_complete_product_element($xml, $product, $item_number)
+    {
+        try {
+            $product_element = $xml->createElement('product');
+
+            // === PODSTAWOWE DANE PRODUKTU ===
+            $this->add_xml_element($xml, $product_element, 'sku', $item_number);
+
+            // Nazwa produktu - połącz wszystkie dostępne informacje
+            $name = $this->build_complete_product_name($product, $item_number);
+            $this->add_xml_element($xml, $product_element, 'name', $name);
+
+            // Opis produktu
+            $description = $this->build_complete_description($product);
+            $this->add_xml_element($xml, $product_element, 'description', $description);
+
+            // === CENY I KOSZTY ===
+            $price_data = $this->get_product_price($item_number);
+            if (!empty($price_data)) {
+                $this->add_pricing_data($xml, $product_element, $price_data);
+            } else {
+                // Jeśli brak ceny, ustaw podstawową cenę z produktu lub 0
+                $fallback_price = !empty($product['listPrice']) ? $product['listPrice'] : '0';
+                $this->add_xml_element($xml, $product_element, 'regular_price', $fallback_price);
+                error_log("MHI ANDA: Używam fallback ceny dla produktu $item_number: $fallback_price");
+            }
+
+            // === KATEGORIE Z PEŁNĄ HIERARCHIĄ ===
+            $this->add_complete_categories($xml, $product_element, $product);
+
+            // === KOMPLETNE ATRYBUTY ===
+            $this->add_complete_attributes($xml, $product_element, $product, $item_number);
+
+            // === STAN MAGAZYNOWY ===
+            $stock = $this->get_product_stock($item_number);
+            $this->add_xml_element($xml, $product_element, 'stock_quantity', $stock);
+            $stock_status = $stock > 0 ? 'instock' : 'outofstock';
+            $this->add_xml_element($xml, $product_element, 'stock_status', $stock_status);
+
+            // === TECHNOLOGIE DRUKU JAKO ATRYBUTY ===
+            $this->add_printing_technologies_as_attributes($xml, $product_element, $product);
+
+            // === DANE ZNAKOWANIA ===
+            $this->add_labeling_data($xml, $product_element, $item_number);
+
+            // === META DATA Z WSZYSTKIMI INFORMACJAMI ===
+            $this->add_complete_meta_data($xml, $product_element, $product, $item_number);
+
+            // === ZDJĘCIA ===
+            $this->add_complete_images($xml, $product_element, $product);
+
+            return $product_element;
+
+        } catch (Exception $e) {
+            error_log("MHI ANDA: Błąd tworzenia kompletnego elementu produktu $item_number: " . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
      * Tworzy element produktu w standardowej strukturze WooCommerce.
      *
      * @param DOMDocument $xml
@@ -725,29 +916,40 @@ class MHI_ANDA_WC_XML_Generator
             $description = !empty($product['descriptions']) ? $product['descriptions'] : '';
             $this->add_xml_element($xml, $product_element, 'description', $description);
 
-            // Cena regularna
+            // === CENY Z POPRAWNEGO MAPOWANIA ===
             $price_data = $this->get_product_price($item_number);
-            $net_price = !empty($price_data['listPrice']) ? $price_data['listPrice'] : '0';
-            $this->add_xml_element($xml, $product_element, 'regular_price', $net_price);
+            if (!empty($price_data)) {
+                $this->add_pricing_data($xml, $product_element, $price_data);
+            } else {
+                // Fallback - sprawdź cenę w danych produktu
+                $fallback_price = !empty($product['listPrice']) ? $product['listPrice'] : '0';
+                $this->add_xml_element($xml, $product_element, 'regular_price', $fallback_price);
+                error_log("MHI ANDA: Standardowy - używam fallback ceny dla produktu $item_number: $fallback_price");
+            }
 
-            // Kategorie
-            $this->add_standard_categories($xml, $product_element, $product);
+            // === KATEGORIE Z POPRAWNEGO MAPOWANIA ===
+            $this->add_complete_categories($xml, $product_element, $product);
 
-            // Atrybuty
-            $this->add_standard_attributes($xml, $product_element, $product, $item_number);
+            // === KOMPLETNE ATRYBUTY ===
+            $this->add_complete_attributes($xml, $product_element, $product, $item_number);
 
-            // Stan magazynowy
+            // === STAN MAGAZYNOWY ===
             $stock = $this->get_product_stock($item_number);
             $this->add_xml_element($xml, $product_element, 'stock_quantity', $stock);
-
             $stock_status = $stock > 0 ? 'instock' : 'outofstock';
             $this->add_xml_element($xml, $product_element, 'stock_status', $stock_status);
 
-            // Meta data - dodatkowe informacje specyficzne dla ANDA
-            $this->add_standard_meta_data($xml, $product_element, $product, $item_number);
+            // === TECHNOLOGIE DRUKU ===
+            $this->add_printing_technologies_as_attributes($xml, $product_element, $product);
 
-            // Zdjęcia
-            $this->add_standard_images($xml, $product_element, $product);
+            // === DANE ZNAKOWANIA ===
+            $this->add_labeling_data($xml, $product_element, $item_number);
+
+            // === KOMPLETNE META DATA ===
+            $this->add_complete_meta_data($xml, $product_element, $product, $item_number);
+
+            // === KOMPLETNE ZDJĘCIA ===
+            $this->add_complete_images($xml, $product_element, $product);
 
             return $product_element;
 
@@ -1638,7 +1840,22 @@ class MHI_ANDA_WC_XML_Generator
      */
     private function get_product_price($item_number)
     {
-        return isset($this->prices_data[$item_number]) ? $this->prices_data[$item_number] : [];
+        // Sprawdź bezpośrednie mapowanie po itemNumber
+        if (isset($this->prices_data[$item_number])) {
+            return $this->prices_data[$item_number];
+        }
+
+        // Przeszukaj wszystkie ceny po itemNumber
+        foreach ($this->prices_data as $price_item) {
+            if (isset($price_item['itemNumber']) && $price_item['itemNumber'] === $item_number) {
+                return $price_item;
+            }
+        }
+
+        // Loguj brak ceny dla debugowania
+        error_log("MHI ANDA: Brak ceny dla produktu: $item_number");
+
+        return [];
     }
 
     /**
@@ -1767,6 +1984,265 @@ class MHI_ANDA_WC_XML_Generator
     }
 
     /**
+     * Buduje kompletną nazwę produktu z wszystkich dostępnych danych.
+     *
+     * @param array $product
+     * @param string $item_number
+     * @return string
+     */
+    private function build_complete_product_name($product, $item_number)
+    {
+        $name_parts = [];
+
+        // Dodaj designName jeśli istnieje
+        if (!empty($product['designName'])) {
+            $name_parts[] = $product['designName'];
+        }
+
+        // Dodaj główną nazwę produktu
+        if (!empty($product['n'])) {
+            $name_parts[] = $product['n'];
+        }
+
+        // Dodaj informacje o kolorze jeśli są dostępne
+        if (!empty($product['primaryColor'])) {
+            $name_parts[] = '(' . $product['primaryColor'] . ')';
+        }
+
+        // Jeśli brak nazw, użyj kodu produktu
+        if (empty($name_parts)) {
+            $name_parts[] = 'Produkt ' . $item_number;
+        }
+
+        return implode(' ', $name_parts);
+    }
+
+    /**
+     * Buduje kompletny opis produktu.
+     *
+     * @param array $product
+     * @return string
+     */
+    private function build_complete_description($product)
+    {
+        $description_parts = [];
+
+        // Główny opis
+        if (!empty($product['descriptions'])) {
+            $description_parts[] = $product['descriptions'];
+        }
+
+        // Dodaj informacje o wymiarach
+        if (!empty($product['width']) && !empty($product['height']) && !empty($product['depth'])) {
+            $dimensions = "Wymiary: {$product['width']} x {$product['height']} x {$product['depth']} cm";
+            $description_parts[] = $dimensions;
+        }
+
+        // Dodaj wagę
+        if (!empty($product['individualProductWeightGram'])) {
+            $weight = "Waga: {$product['individualProductWeightGram']} g";
+            $description_parts[] = $weight;
+        }
+
+        // Dodaj materiał jeśli wykryty
+        $material = $this->detect_material($product);
+        if ($material) {
+            $description_parts[] = "Materiał: $material";
+        }
+
+        // Dodaj minimalne zamówienie
+        if (!empty($product['minimumOrderQuantity'])) {
+            $min_order = "Minimalne zamówienie: {$product['minimumOrderQuantity']} szt.";
+            $description_parts[] = $min_order;
+        }
+
+        return implode("\n\n", $description_parts);
+    }
+
+    /**
+     * Dodaje dane cenowe do produktu.
+     *
+     * @param DOMDocument $xml
+     * @param DOMElement $product_element
+     * @param array $price_data
+     */
+    private function add_pricing_data($xml, $product_element, $price_data)
+    {
+        // Cena regularna (netto)
+        if (!empty($price_data['listPrice'])) {
+            $this->add_xml_element($xml, $product_element, 'regular_price', $price_data['listPrice']);
+        }
+
+        // Cena brutto (z VAT 23%)
+        if (!empty($price_data['listPrice'])) {
+            $gross_price = floatval($price_data['listPrice']) * 1.23;
+            $this->add_xml_element($xml, $product_element, 'regular_price_gross', number_format($gross_price, 2, '.', ''));
+        }
+
+        // Waluta
+        if (!empty($price_data['currency'])) {
+            $this->add_xml_element($xml, $product_element, 'currency', $price_data['currency']);
+        }
+    }
+
+    /**
+     * Dodaje kompletne kategorie z pełną hierarchią.
+     *
+     * @param DOMDocument $xml
+     * @param DOMElement $product_element
+     * @param array $product
+     */
+    private function add_complete_categories($xml, $product_element, $product)
+    {
+        $categories_element = $xml->createElement('categories');
+        $product_element->appendChild($categories_element);
+
+        $categories_added = [];
+
+        // Znajdź kategorie produktu na podstawie różnych kryteriów
+        $product_categories = $this->find_product_categories($product);
+
+        // Jeśli nie znaleziono kategorii, dodaj domyślną
+        if (empty($product_categories)) {
+            $product_categories = [
+                [
+                    'name' => 'Produkty reklamowe',
+                    'id' => '',
+                    'path' => 'Produkty reklamowe'
+                ]
+            ];
+            error_log("MHI ANDA: Używam domyślnej kategorii dla produktu: " . ($product['itemNumber'] ?? 'nieznany'));
+        }
+
+        foreach ($product_categories as $category_info) {
+            if (!in_array($category_info['name'], $categories_added)) {
+                $category_element = $xml->createElement('category');
+
+                $this->add_xml_element($xml, $category_element, 'name', $category_info['name']);
+                $this->add_xml_element($xml, $category_element, 'id', $category_info['id']);
+
+                if (!empty($category_info['path'])) {
+                    $this->add_xml_element($xml, $category_element, 'path', $category_info['path']);
+                }
+
+                $categories_element->appendChild($category_element);
+                $categories_added[] = $category_info['name'];
+            }
+        }
+    }
+
+    /**
+     * Znajduje kategorie produktu używając różnych metod.
+     *
+     * @param array $product
+     * @return array
+     */
+    private function find_product_categories($product)
+    {
+        $categories = [];
+
+        // Metoda 1: Z danych produktu - sprawdź różne struktury
+        if (!empty($product['categories'])) {
+            if (isset($product['categories']['category'])) {
+                $product_categories = $product['categories']['category'];
+                if (isset($product_categories['name'])) {
+                    $product_categories = [$product_categories];
+                }
+
+                foreach ($product_categories as $category) {
+                    if (!empty($category['name'])) {
+                        $categories[] = [
+                            'name' => $category['name'],
+                            'id' => $category['externalId'] ?? '',
+                            'path' => $category['name']
+                        ];
+                    }
+                }
+            } elseif (is_string($product['categories'])) {
+                // Kategorie jako string oddzielone przecinkami
+                $cat_names = explode(',', $product['categories']);
+                foreach ($cat_names as $cat_name) {
+                    $cat_name = trim($cat_name);
+                    if (!empty($cat_name)) {
+                        $categories[] = [
+                            'name' => $cat_name,
+                            'id' => '',
+                            'path' => $cat_name
+                        ];
+                    }
+                }
+            }
+        }
+
+        // Metoda 2: Wyszukaj w danych kategorii po categoryNumbers
+        if (empty($categories) && !empty($product['categoryNumbers'])) {
+            $cat_numbers = is_array($product['categoryNumbers']) ?
+                $product['categoryNumbers'] :
+                explode(',', $product['categoryNumbers']);
+
+            foreach ($cat_numbers as $cat_number) {
+                $cat_number = trim($cat_number);
+                if (!empty($this->flat_categories[$cat_number])) {
+                    $cat_data = $this->flat_categories[$cat_number];
+                    $categories[] = [
+                        'name' => $cat_data['name'],
+                        'id' => $cat_data['id'],
+                        'path' => $cat_data['path']
+                    ];
+                }
+            }
+        }
+
+        // Metoda 3: Mapowanie na podstawie nazwy produktu
+        if (empty($categories)) {
+            $mapped_categories = $this->map_product_to_categories($product);
+            foreach ($mapped_categories as $cat_name) {
+                $categories[] = [
+                    'name' => $cat_name,
+                    'id' => '',
+                    'path' => $cat_name
+                ];
+            }
+        }
+
+        // Metoda 4: Wyszukiwanie w hierarchii kategorii
+        $enhanced_categories = [];
+        foreach ($categories as $category) {
+            $enhanced_cat = $this->enhance_category_with_hierarchy($category);
+            if ($enhanced_cat) {
+                $enhanced_categories[] = $enhanced_cat;
+            }
+        }
+
+        // Loguj dla debugowania
+        if (empty($categories)) {
+            error_log("MHI ANDA: Brak kategorii dla produktu: " . ($product['itemNumber'] ?? 'nieznany'));
+        }
+
+        return !empty($enhanced_categories) ? $enhanced_categories : $categories;
+    }
+
+    /**
+     * Wzbogaca kategorię o informacje z hierarchii.
+     *
+     * @param array $category
+     * @return array|null
+     */
+    private function enhance_category_with_hierarchy($category)
+    {
+        if (!empty($category['id']) && isset($this->flat_categories[$category['id']])) {
+            $flat_cat = $this->flat_categories[$category['id']];
+            return [
+                'name' => $flat_cat['name'],
+                'id' => $flat_cat['id'],
+                'path' => $flat_cat['path']
+            ];
+        }
+
+        return $category;
+    }
+
+    /**
      * Czyści nazwę atrybutu.
      *
      * @param string $name
@@ -1787,5 +2263,415 @@ class MHI_ANDA_WC_XML_Generator
         $name = trim($name, '_');
 
         return $name;
+    }
+
+    /**
+     * Dodaje kompletne atrybuty produktu.
+     *
+     * @param DOMDocument $xml
+     * @param DOMElement $product_element
+     * @param array $product
+     * @param string $item_number
+     */
+    private function add_complete_attributes($xml, $product_element, $product, $item_number)
+    {
+        $attributes_element = $xml->createElement('attributes');
+        $product_element->appendChild($attributes_element);
+
+        // === PODSTAWOWE ATRYBUTY ===
+
+        // Materiał
+        $material = $this->detect_material($product);
+        if (!empty($material)) {
+            $this->add_complete_attribute($xml, $attributes_element, 'Materiał', $material);
+        }
+
+        // Wymiary
+        if (!empty($product['width']) && !empty($product['height']) && !empty($product['depth'])) {
+            $dimensions = $product['width'] . ' x ' . $product['height'] . ' x ' . $product['depth'] . ' cm';
+            $this->add_complete_attribute($xml, $attributes_element, 'Wymiary', $dimensions);
+        }
+
+        // Wymiary pojedyncze
+        if (!empty($product['width'])) {
+            $this->add_complete_attribute($xml, $attributes_element, 'Szerokość', $product['width'] . ' cm');
+        }
+        if (!empty($product['height'])) {
+            $this->add_complete_attribute($xml, $attributes_element, 'Wysokość', $product['height'] . ' cm');
+        }
+        if (!empty($product['depth'])) {
+            $this->add_complete_attribute($xml, $attributes_element, 'Głębokość', $product['depth'] . ' cm');
+        }
+
+        // Waga
+        if (!empty($product['individualProductWeightGram'])) {
+            $this->add_complete_attribute($xml, $attributes_element, 'Waga', $product['individualProductWeightGram'] . ' g');
+        }
+
+        // Kolory
+        if (!empty($product['primaryColor'])) {
+            $this->add_complete_attribute($xml, $attributes_element, 'Kolor główny', $product['primaryColor']);
+        }
+        if (!empty($product['secondaryColor'])) {
+            $this->add_complete_attribute($xml, $attributes_element, 'Kolor dodatkowy', $product['secondaryColor']);
+        }
+
+        // Minimalna ilość zamówienia
+        if (!empty($product['minimumOrderQuantity'])) {
+            $this->add_complete_attribute($xml, $attributes_element, 'Minimalne zamówienie', $product['minimumOrderQuantity'] . ' szt.');
+        }
+
+        // Pakowanie
+        if (!empty($product['packaging'])) {
+            $this->add_complete_attribute($xml, $attributes_element, 'Pakowanie', $product['packaging']);
+        }
+
+        // Certyfikaty
+        $certifications = $this->detect_certifications($product);
+        if (!empty($certifications)) {
+            $this->add_complete_attribute($xml, $attributes_element, 'Certyfikaty', implode(', ', $certifications));
+        }
+
+        // Kraj pochodzenia
+        if (!empty($product['countryOfOrigin'])) {
+            $this->add_complete_attribute($xml, $attributes_element, 'Kraj pochodzenia', $product['countryOfOrigin']);
+        }
+
+        // EAN
+        if (!empty($product['eanCode'])) {
+            $this->add_complete_attribute($xml, $attributes_element, 'Kod EAN', $product['eanCode']);
+        }
+
+        // Status produktu
+        $custom_production = !empty($product['customProduction']) && $product['customProduction'] == '1' ? 'Tak' : 'Nie';
+        $this->add_complete_attribute($xml, $attributes_element, 'Produkt na zamówienie', $custom_production);
+
+        $available = empty($product['temporarilyUnavailable']) || $product['temporarilyUnavailable'] != '1' ? 'Tak' : 'Nie';
+        $this->add_complete_attribute($xml, $attributes_element, 'Dostępny', $available);
+
+        // === ATRYBUTY Z SPECIFICATION ===
+        $this->add_specification_attributes($xml, $attributes_element, $product);
+    }
+
+    /**
+     * Dodaje atrybuty z sekcji specification produktu.
+     *
+     * @param DOMDocument $xml
+     * @param DOMElement $attributes_element
+     * @param array $product
+     */
+    private function add_specification_attributes($xml, $attributes_element, $product)
+    {
+        if (empty($product['specification']['property'])) {
+            return;
+        }
+
+        $properties = $product['specification']['property'];
+
+        // Jeśli to pojedyncza właściwość
+        if (isset($properties['n'])) {
+            $properties = [$properties];
+        }
+
+        foreach ($properties as $property) {
+            if (!empty($property['n']) && !empty($property['values']['value'])) {
+                $attr_name = $property['n'];
+                $values = is_array($property['values']['value']) ?
+                    $property['values']['value'] :
+                    [$property['values']['value']];
+
+                $attr_value = implode(', ', $values);
+                $this->add_complete_attribute($xml, $attributes_element, $attr_name, $attr_value);
+            }
+        }
+    }
+
+    /**
+     * Dodaje technologie druku jako atrybuty produktu.
+     *
+     * @param DOMDocument $xml
+     * @param DOMElement $product_element
+     * @param array $product
+     */
+    private function add_printing_technologies_as_attributes($xml, $product_element, $product)
+    {
+        $printing_section = $xml->createElement('printing_technologies');
+        $product_element->appendChild($printing_section);
+
+        // Znajdź odpowiednie technologie dla tego produktu
+        $suitable_technologies = $this->get_suitable_printing_technologies($product);
+
+        if (!empty($suitable_technologies)) {
+            foreach ($suitable_technologies as $tech_data) {
+                $tech_element = $xml->createElement('technology');
+
+                $this->add_xml_element($xml, $tech_element, 'code', $tech_data['code']);
+                $this->add_xml_element($xml, $tech_element, 'name', $tech_data['name']);
+
+                // Dodaj cenniki jeśli dostępne
+                if (!empty($this->printing_prices_data[$tech_data['code']])) {
+                    $price_data = $this->printing_prices_data[$tech_data['code']];
+                    $this->add_printing_price_ranges($xml, $tech_element, $price_data);
+                }
+
+                $printing_section->appendChild($tech_element);
+            }
+        }
+
+        // Dodaj też jako zwykłe atrybuty
+        if (!empty($suitable_technologies)) {
+            $tech_names = array_map(function ($tech) {
+                return $tech['name'];
+            }, $suitable_technologies);
+
+            // Znajdź sekcję attributes i dodaj technologie
+            $xpath = new DOMXPath($xml);
+            $attributes_nodes = $xpath->query('attributes', $product_element);
+            if ($attributes_nodes->length > 0) {
+                $attributes_element = $attributes_nodes->item(0);
+                $this->add_complete_attribute($xml, $attributes_element, 'Dostępne technologie znakowania', implode(', ', $tech_names));
+            }
+        }
+    }
+
+    /**
+     * Dodaje cenniki technologii druku.
+     *
+     * @param DOMDocument $xml
+     * @param DOMElement $tech_element
+     * @param array $price_data
+     */
+    private function add_printing_price_ranges($xml, $tech_element, $price_data)
+    {
+        if (empty($price_data['ranges'])) {
+            return;
+        }
+
+        $ranges_element = $xml->createElement('price_ranges');
+
+        foreach ($price_data['ranges'] as $range) {
+            $range_element = $xml->createElement('range');
+
+            $this->add_xml_element($xml, $range_element, 'colors', $range['colors'] ?? '');
+            $this->add_xml_element($xml, $range_element, 'qty_from', $range['qty_from'] ?? '');
+            $this->add_xml_element($xml, $range_element, 'qty_to', $range['qty_to'] ?? '');
+            $this->add_xml_element($xml, $range_element, 'unit_price', $range['unit_price'] ?? '');
+            $this->add_xml_element($xml, $range_element, 'setup_cost', $range['setup_cost'] ?? '');
+
+            if (!empty($range['size_from'])) {
+                $this->add_xml_element($xml, $range_element, 'size_from', $range['size_from']);
+            }
+            if (!empty($range['size_to'])) {
+                $this->add_xml_element($xml, $range_element, 'size_to', $range['size_to']);
+            }
+
+            $ranges_element->appendChild($range_element);
+        }
+
+        $tech_element->appendChild($ranges_element);
+    }
+
+    /**
+     * Dodaje dane znakowania z labeling.xml.
+     *
+     * @param DOMDocument $xml
+     * @param DOMElement $product_element
+     * @param string $item_number
+     */
+    private function add_labeling_data($xml, $product_element, $item_number)
+    {
+        $labeling_section = $xml->createElement('labeling_info');
+        $product_element->appendChild($labeling_section);
+
+        // Znajdź dane znakowania dla tego produktu
+        $labeling_data = $this->get_product_labeling_data($item_number);
+
+        if (!empty($labeling_data)) {
+            foreach ($labeling_data as $key => $value) {
+                if (!empty($value)) {
+                    $this->add_xml_element($xml, $labeling_section, $key, $value);
+                }
+            }
+        }
+
+        // Dodaj też podstawowe informacje o znakowaniu z produktu
+        // (te dane będą dostępne jeśli są w strukturze produktu)
+    }
+
+    /**
+     * Pobiera dane znakowania dla produktu.
+     *
+     * @param string $item_number
+     * @return array
+     */
+    private function get_product_labeling_data($item_number)
+    {
+        foreach ($this->labeling_data as $labeling) {
+            if (isset($labeling['itemNumber']) && $labeling['itemNumber'] === $item_number) {
+                return $labeling;
+            }
+        }
+        return [];
+    }
+
+    /**
+     * Dodaje kompletne meta data z wszystkimi informacjami.
+     *
+     * @param DOMDocument $xml
+     * @param DOMElement $product_element
+     * @param array $product
+     * @param string $item_number
+     */
+    private function add_complete_meta_data($xml, $product_element, $product, $item_number)
+    {
+        $meta_section = $xml->createElement('meta_data');
+        $product_element->appendChild($meta_section);
+
+        // Kod ANDA
+        $this->add_complete_meta($xml, $meta_section, '_anda_code', $item_number);
+
+        // Wszystkie dostępne dane produktu jako meta
+        $meta_fields = [
+            'eanCode' => '_anda_ean',
+            'countryOfOrigin' => '_anda_country_origin',
+            'customProduction' => '_anda_custom_production',
+            'temporarilyUnavailable' => '_anda_unavailable',
+            'minimumOrderQuantity' => '_anda_min_order_qty',
+            'packaging' => '_anda_packaging',
+            'designName' => '_anda_design_name',
+            'primaryColor' => '_anda_primary_color',
+            'secondaryColor' => '_anda_secondary_color',
+            'individualProductWeightGram' => '_anda_weight_gram',
+            'width' => '_anda_width',
+            'height' => '_anda_height',
+            'depth' => '_anda_depth'
+        ];
+
+        foreach ($meta_fields as $product_field => $meta_key) {
+            if (!empty($product[$product_field])) {
+                $this->add_complete_meta($xml, $meta_section, $meta_key, $product[$product_field]);
+            }
+        }
+
+        // Dane cenowe
+        $price_data = $this->get_product_price($item_number);
+        if (!empty($price_data)) {
+            foreach ($price_data as $price_key => $price_value) {
+                if (!empty($price_value)) {
+                    $this->add_complete_meta($xml, $meta_section, '_anda_price_' . $price_key, $price_value);
+                }
+            }
+        }
+
+        // Stan magazynowy
+        $stock = $this->get_product_stock($item_number);
+        $this->add_complete_meta($xml, $meta_section, '_anda_stock', $stock);
+    }
+
+    /**
+     * Dodaje kompletne zdjęcia produktu.
+     *
+     * @param DOMDocument $xml
+     * @param DOMElement $product_element
+     * @param array $product
+     */
+    private function add_complete_images($xml, $product_element, $product)
+    {
+        $images_element = $xml->createElement('images');
+        $product_element->appendChild($images_element);
+
+        $images_added = [];
+
+        // Główne zdjęcie
+        if (!empty($product['primaryImage'])) {
+            $this->add_image_element($xml, $images_element, $product['primaryImage'], 'primary');
+            $images_added[] = $product['primaryImage'];
+        }
+
+        // Dodatkowe zdjęcia z różnych źródeł
+        $image_fields = ['secondaryImage', 'image1', 'image2', 'image3', 'image4', 'image5'];
+        foreach ($image_fields as $field) {
+            if (!empty($product[$field]) && !in_array($product[$field], $images_added)) {
+                $this->add_image_element($xml, $images_element, $product[$field], 'gallery');
+                $images_added[] = $product[$field];
+            }
+        }
+
+        // Zdjęcia z sekcji images
+        if (!empty($product['images']['image'])) {
+            $gallery_images = $product['images']['image'];
+
+            if (is_string($gallery_images)) {
+                $gallery_images = [$gallery_images];
+            }
+
+            if (is_array($gallery_images)) {
+                foreach ($gallery_images as $image_url) {
+                    if (is_string($image_url) && !empty($image_url) && !in_array($image_url, $images_added)) {
+                        $this->add_image_element($xml, $images_element, $image_url, 'gallery');
+                        $images_added[] = $image_url;
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Dodaje pojedynczy element zdjęcia.
+     *
+     * @param DOMDocument $xml
+     * @param DOMElement $images_element
+     * @param string $image_url
+     * @param string $type
+     */
+    private function add_image_element($xml, $images_element, $image_url, $type = 'gallery')
+    {
+        $image_element = $xml->createElement('image');
+        $image_element->setAttribute('src', $image_url);
+        $image_element->setAttribute('type', $type);
+        $images_element->appendChild($image_element);
+    }
+
+    /**
+     * Dodaje pojedynczy atrybut w kompletnej strukturze.
+     *
+     * @param DOMDocument $xml
+     * @param DOMElement $attributes_element
+     * @param string $name
+     * @param string $value
+     */
+    private function add_complete_attribute($xml, $attributes_element, $name, $value)
+    {
+        if (empty($value))
+            return;
+
+        $attribute_element = $xml->createElement('attribute');
+
+        $this->add_xml_element($xml, $attribute_element, 'name', $name);
+        $this->add_xml_element($xml, $attribute_element, 'value', $value);
+        $this->add_xml_element($xml, $attribute_element, 'visible', '1');
+
+        $attributes_element->appendChild($attribute_element);
+    }
+
+    /**
+     * Dodaje pojedynczy meta data element.
+     *
+     * @param DOMDocument $xml
+     * @param DOMElement $meta_section
+     * @param string $key
+     * @param string $value
+     */
+    private function add_complete_meta($xml, $meta_section, $key, $value)
+    {
+        if (empty($value))
+            return;
+
+        $meta_element = $xml->createElement('meta');
+
+        $this->add_xml_element($xml, $meta_element, 'key', $key);
+        $this->add_xml_element($xml, $meta_element, 'value', $value);
+
+        $meta_section->appendChild($meta_element);
     }
 }

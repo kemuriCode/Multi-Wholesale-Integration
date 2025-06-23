@@ -171,7 +171,12 @@ class MHI_Cron_Importer
      */
     private static function import_supplier_products($supplier)
     {
-        // Znajdź plik XML
+        // Specjalna obsługa dla ANDA - nowy kompleksowy XML
+        if ($supplier === 'anda') {
+            return self::import_anda_products();
+        }
+
+        // Standardowa obsługa dla innych hurtowni
         $upload_dir = wp_upload_dir();
         $xml_file = trailingslashit($upload_dir['basedir']) . 'wholesale/' . $supplier . '/woocommerce_import_' . $supplier . '.xml';
 
@@ -229,6 +234,92 @@ class MHI_Cron_Importer
         wp_defer_term_counting(false);
         wp_defer_comment_counting(false);
         wp_suspend_cache_invalidation(false);
+
+        return [
+            'success' => true,
+            'imported' => $imported,
+            'errors' => $errors,
+            'total' => $total
+        ];
+    }
+
+    /**
+     * Specjalny import dla hurtowni ANDA z kompleksowym XML
+     */
+    private static function import_anda_products()
+    {
+        self::log('🔥 Rozpoczynanie importu ANDA z kompleksowym XML');
+
+        // Znajdź nowy plik ANDA
+        $upload_dir = wp_upload_dir();
+        $xml_file = trailingslashit($upload_dir['basedir']) . 'wholesale/anda/anda_complete_import.xml';
+
+        if (!file_exists($xml_file)) {
+            return [
+                'success' => false,
+                'error' => 'Kompleksowy plik XML ANDA nie istnieje: anda_complete_woocommerce.xml'
+            ];
+        }
+
+        // Parsuj XML
+        $xml = simplexml_load_file($xml_file);
+        if (!$xml) {
+            return [
+                'success' => false,
+                'error' => 'Błąd parsowania kompleksowego pliku XML ANDA'
+            ];
+        }
+
+        // Sprawdź strukturę - nowy XML ma <products><product>...
+        if (!isset($xml->products) && !isset($xml->products->product)) {
+            return [
+                'success' => false,
+                'error' => 'Nieprawidłowa struktura kompleksowego XML ANDA'
+            ];
+        }
+
+        $products = $xml->products->product;
+        $total = count($products);
+        $imported = 0;
+        $errors = 0;
+
+        self::log("📦 Znaleziono {$total} produktów ANDA do importu");
+
+        // Zwiększ limity - ANDA ma dużo danych
+        ini_set('memory_limit', '2048M');
+        set_time_limit(0);
+
+        // Wyłącz cache dla wydajności
+        wp_defer_term_counting(true);
+        wp_defer_comment_counting(true);
+        wp_suspend_cache_invalidation(true);
+
+        foreach ($products as $product_xml) {
+            try {
+                $result = self::import_anda_single_product($product_xml);
+                if ($result) {
+                    $imported++;
+                } else {
+                    $errors++;
+                }
+            } catch (Exception $e) {
+                $errors++;
+                self::log("Błąd importu produktu ANDA: " . $e->getMessage(), 'error');
+            }
+
+            // Aktualizuj status co 5 produktów (częściej bo ANDA ma więcej danych)
+            if (($imported + $errors) % 5 === 0) {
+                $progress = round((($imported + $errors) / $total) * 100);
+                self::update_status('running', "Import ANDA: {$progress}% ({$imported}/{$total})");
+            }
+        }
+
+        // Przywróć cache
+        wp_defer_term_counting(false);
+        wp_defer_comment_counting(false);
+        wp_suspend_cache_invalidation(false);
+
+        self::log("✅ Import ANDA zakończony: {$imported} importów, {$errors} błędów");
 
         return [
             'success' => true,
@@ -375,6 +466,378 @@ class MHI_Cron_Importer
         }
 
         return true;
+    }
+
+    /**
+     * Importuje pojedynczy produkt ANDA z kompleksowymi danymi
+     */
+    private static function import_anda_single_product($product_xml)
+    {
+        // SKU i nazwa produktu
+        $sku = trim((string) $product_xml->sku);
+        if (empty($sku)) {
+            throw new Exception("Brak SKU dla produktu ANDA");
+        }
+
+        $name = trim((string) $product_xml->name);
+        if (empty($name)) {
+            $name = 'Produkt ANDA ' . $sku;
+        }
+
+        self::log("🔧 Importuję produkt ANDA: {$sku} - {$name}");
+
+        // Sprawdź czy produkt istnieje
+        $product_id = wc_get_product_id_by_sku($sku);
+        $is_update = (bool) $product_id;
+
+        if ($is_update) {
+            $product = wc_get_product($product_id);
+            self::log("📝 Aktualizuję istniejący produkt ANDA: {$sku}");
+        } else {
+            $product = new WC_Product();
+            self::log("✨ Tworzę nowy produkt ANDA: {$sku}");
+        }
+
+        // === PODSTAWOWE DANE ===
+        $product->set_name($name);
+        $product->set_description((string) $product_xml->description);
+        $product->set_short_description((string) $product_xml->short_description);
+        $product->set_sku($sku);
+        $product->set_status('publish');
+
+        // === CENY z kompleksowych danych ANDA ===
+        $regular_price = trim((string) $product_xml->price);
+        if (!empty($regular_price)) {
+            $regular_price = str_replace(',', '.', $regular_price);
+            if (is_numeric($regular_price) && floatval($regular_price) > 0) {
+                $product->set_regular_price($regular_price);
+                self::log("💰 Ustawiam cenę ANDA: {$regular_price}");
+            }
+        }
+
+        // Cena promocyjna jeśli dostępna
+        $sale_price = trim((string) $product_xml->sale_price);
+        if (!empty($sale_price)) {
+            $sale_price = str_replace(',', '.', $sale_price);
+            if (is_numeric($sale_price) && floatval($sale_price) > 0) {
+                $product->set_sale_price($sale_price);
+            }
+        }
+
+        // === STAN MAGAZYNOWY ===
+        $stock_qty = trim((string) $product_xml->stock_quantity);
+        if (!empty($stock_qty) && is_numeric($stock_qty)) {
+            $product->set_manage_stock(true);
+            $product->set_stock_quantity((int) $stock_qty);
+            $product->set_stock_status('instock');
+        }
+
+        // === WYMIARY I WAGA ===
+        if (!empty((string) $product_xml->weight)) {
+            $product->set_weight((string) $product_xml->weight);
+        }
+        if (!empty((string) $product_xml->dimensions->length)) {
+            $product->set_length((string) $product_xml->dimensions->length);
+        }
+        if (!empty((string) $product_xml->dimensions->width)) {
+            $product->set_width((string) $product_xml->dimensions->width);
+        }
+        if (!empty((string) $product_xml->dimensions->height)) {
+            $product->set_height((string) $product_xml->dimensions->height);
+        }
+
+        // ZAPISZ PRODUKT
+        $product_id = $product->save();
+
+        if (!$product_id) {
+            throw new Exception("Nie można zapisać produktu ANDA: {$name}");
+        }
+
+        // === KATEGORIE HIERARCHICZNE ===
+        self::import_anda_categories($product_xml, $product_id);
+
+        // === KOMPLETNE ATRYBUTY ===
+        self::import_anda_attributes($product_xml, $product_id);
+
+        // === TECHNOLOGIE DRUKU ===
+        self::import_anda_printing_technologies($product_xml, $product_id);
+
+        // === DANE ZNAKOWANIA (LABELING) ===
+        self::import_anda_labeling_data($product_xml, $product_id);
+
+        // === META DATA ANDA ===
+        self::import_anda_meta_data($product_xml, $product_id);
+
+        // === OBRAZY ===
+        self::import_anda_images($product_xml, $product_id);
+
+        self::log("✅ Pomyślnie zaimportowano produkt ANDA: {$sku}");
+        return true;
+    }
+
+    /**
+     * Importuje hierarchiczne kategorie ANDA
+     */
+    private static function import_anda_categories($product_xml, $product_id)
+    {
+        if (!isset($product_xml->categories) || !isset($product_xml->categories->category)) {
+            return;
+        }
+
+        $categories = $product_xml->categories->category;
+        if (!is_array($categories)) {
+            $categories = [$categories];
+        }
+
+        $category_ids = [];
+
+        foreach ($categories as $category_xml) {
+            $category_path = trim((string) $category_xml->path);
+            if (!empty($category_path)) {
+                $category_id = self::create_hierarchical_category($category_path);
+                if ($category_id) {
+                    $category_ids[] = $category_id;
+                }
+            }
+        }
+
+        if (!empty($category_ids)) {
+            wp_set_object_terms($product_id, $category_ids, 'product_cat');
+            self::log("📂 Przypisano " . count($category_ids) . " kategorii ANDA do produktu");
+        }
+    }
+
+    /**
+     * Tworzy hierarchiczną strukturę kategorii
+     */
+    private static function create_hierarchical_category($category_path)
+    {
+        $categories = explode(' > ', $category_path);
+        $categories = array_map('trim', $categories);
+        $categories = array_filter($categories);
+
+        $parent_id = 0;
+        $category_id = 0;
+
+        foreach ($categories as $category_name) {
+            $term = get_term_by('name', $category_name, 'product_cat');
+
+            if (!$term) {
+                $result = wp_insert_term($category_name, 'product_cat', ['parent' => $parent_id]);
+                if (!is_wp_error($result)) {
+                    $category_id = $result['term_id'];
+                    $parent_id = $result['term_id'];
+                }
+            } else {
+                $category_id = $term->term_id;
+                $parent_id = $term->term_id;
+            }
+        }
+
+        return $category_id;
+    }
+
+    /**
+     * Importuje kompletne atrybuty ANDA
+     */
+    private static function import_anda_attributes($product_xml, $product_id)
+    {
+        if (!isset($product_xml->attributes) || !isset($product_xml->attributes->attribute)) {
+            return;
+        }
+
+        $attributes = $product_xml->attributes->attribute;
+        if (!is_array($attributes)) {
+            $attributes = [$attributes];
+        }
+
+        $wc_attributes = [];
+        $imported_count = 0;
+
+        foreach ($attributes as $attr_xml) {
+            $attr_name = trim((string) $attr_xml->name);
+            $attr_value = trim((string) $attr_xml->value);
+
+            if (!empty($attr_name) && !empty($attr_value)) {
+                $attribute = new WC_Product_Attribute();
+                $attribute->set_name($attr_name);
+                $attribute->set_options([$attr_value]);
+                $attribute->set_visible(true);
+                $attribute->set_variation(false);
+                $wc_attributes[] = $attribute;
+                $imported_count++;
+            }
+        }
+
+        if (!empty($wc_attributes)) {
+            $product = wc_get_product($product_id);
+            $product->set_attributes($wc_attributes);
+            $product->save();
+            self::log("🏷️ Zaimportowano {$imported_count} atrybutów ANDA");
+        }
+    }
+
+    /**
+     * Importuje technologie druku ANDA
+     */
+    private static function import_anda_printing_technologies($product_xml, $product_id)
+    {
+        if (!isset($product_xml->printing_technologies) || !isset($product_xml->printing_technologies->technology)) {
+            return;
+        }
+
+        $technologies = $product_xml->printing_technologies->technology;
+        if (!is_array($technologies)) {
+            $technologies = [$technologies];
+        }
+
+        $tech_data = [];
+        $tech_names = [];
+
+        foreach ($technologies as $tech_xml) {
+            $tech_code = trim((string) $tech_xml->code);
+            $tech_name = trim((string) $tech_xml->name);
+
+            if (!empty($tech_code) && !empty($tech_name)) {
+                $tech_names[] = $tech_name;
+
+                // Zapisz cenniki jeśli dostępne
+                if (isset($tech_xml->price_ranges) && isset($tech_xml->price_ranges->range)) {
+                    $ranges = $tech_xml->price_ranges->range;
+                    if (!is_array($ranges)) {
+                        $ranges = [$ranges];
+                    }
+
+                    $price_ranges = [];
+                    foreach ($ranges as $range_xml) {
+                        $price_ranges[] = [
+                            'colors' => (string) $range_xml->colors,
+                            'qty_from' => (string) $range_xml->qty_from,
+                            'qty_to' => (string) $range_xml->qty_to,
+                            'unit_price' => (string) $range_xml->unit_price,
+                            'setup_cost' => (string) $range_xml->setup_cost
+                        ];
+                    }
+
+                    $tech_data[$tech_code] = [
+                        'name' => $tech_name,
+                        'price_ranges' => $price_ranges
+                    ];
+                }
+            }
+        }
+
+        // Zapisz technologie jako meta data
+        if (!empty($tech_data)) {
+            update_post_meta($product_id, '_anda_printing_technologies', $tech_data);
+        }
+
+        // Zapisz nazwy technologii jako atrybut
+        if (!empty($tech_names)) {
+            update_post_meta($product_id, '_anda_available_printing_technologies', implode(', ', $tech_names));
+            self::log("🖨️ Zaimportowano " . count($tech_names) . " technologii druku ANDA");
+        }
+    }
+
+    /**
+     * Importuje dane znakowania ANDA
+     */
+    private static function import_anda_labeling_data($product_xml, $product_id)
+    {
+        if (!isset($product_xml->labeling_info)) {
+            return;
+        }
+
+        $labeling = $product_xml->labeling_info;
+        $labeling_data = [];
+
+        // Przejdź przez wszystkie elementy znakowania
+        foreach ($labeling->children() as $key => $value) {
+            $labeling_data[$key] = trim((string) $value);
+        }
+
+        if (!empty($labeling_data)) {
+            update_post_meta($product_id, '_anda_labeling_data', $labeling_data);
+            self::log("🏷️ Zaimportowano dane znakowania ANDA: " . count($labeling_data) . " elementów");
+        }
+    }
+
+    /**
+     * Importuje meta data ANDA
+     */
+    private static function import_anda_meta_data($product_xml, $product_id)
+    {
+        if (!isset($product_xml->meta_data) || !isset($product_xml->meta_data->meta)) {
+            return;
+        }
+
+        $meta_elements = $product_xml->meta_data->meta;
+        if (!is_array($meta_elements)) {
+            $meta_elements = [$meta_elements];
+        }
+
+        $imported_count = 0;
+
+        foreach ($meta_elements as $meta_xml) {
+            $meta_key = trim((string) $meta_xml->key);
+            $meta_value = trim((string) $meta_xml->value);
+
+            if (!empty($meta_key) && !empty($meta_value)) {
+                update_post_meta($product_id, $meta_key, $meta_value);
+                $imported_count++;
+            }
+        }
+
+        if ($imported_count > 0) {
+            self::log("📊 Zaimportowano {$imported_count} meta danych ANDA");
+        }
+    }
+
+    /**
+     * Importuje obrazy ANDA
+     */
+    private static function import_anda_images($product_xml, $product_id)
+    {
+        if (!isset($product_xml->images) || !isset($product_xml->images->image)) {
+            return;
+        }
+
+        $images = $product_xml->images->image;
+        if (!is_array($images)) {
+            $images = [$images];
+        }
+
+        $imported_count = 0;
+        $gallery_ids = [];
+
+        foreach ($images as $i => $image_xml) {
+            $image_url = trim((string) $image_xml['src']);
+            $image_type = trim((string) $image_xml['type']);
+
+            if (!empty($image_url) && filter_var($image_url, FILTER_VALIDATE_URL)) {
+                $is_featured = ($image_type === 'primary' || $i === 0);
+
+                $attachment_id = self::import_product_image($image_url, $product_id, $is_featured);
+                if ($attachment_id && !$is_featured) {
+                    $gallery_ids[] = $attachment_id;
+                }
+
+                if ($attachment_id) {
+                    $imported_count++;
+                }
+            }
+        }
+
+        // Ustaw galerię zdjęć
+        if (!empty($gallery_ids)) {
+            $product = wc_get_product($product_id);
+            $product->set_gallery_image_ids($gallery_ids);
+            $product->save();
+        }
+
+        if ($imported_count > 0) {
+            self::log("📷 Zaimportowano {$imported_count} zdjęć ANDA");
+        }
     }
 
     /**

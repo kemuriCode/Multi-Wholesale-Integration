@@ -64,6 +64,46 @@ $active_tab = isset($_GET['tab']) ? sanitize_text_field($_GET['tab']) : 'general
 
     <div class="mhi-admin-content">
         <?php if ($active_tab === 'general'): ?>
+            <!-- Sekcja: Manager Cronów Importu -->
+            <div class="postbox">
+                <div class="postbox-header">
+                    <h2><span class="dashicons dashicons-admin-tools"></span>
+                        <?php _e('🎛️ Manager Cronów Importu', 'multi-hurtownie-integration'); ?></h2>
+                </div>
+                <div class="inside">
+                    <p><?php _e('Zaawansowane zarządzanie importem produktów w 3 etapach. Monitoruj postęp, uruchamiaj etapy selektywnie i kontroluj proces importu w czasie rzeczywistym.', 'multi-hurtownie-integration'); ?>
+                    </p>
+
+                    <div style="background: #f8f9fa; padding: 15px; border-radius: 5px; margin: 15px 0;">
+                        <h4 style="margin-top: 0;">📋 Jak działa system cronów:</h4>
+                        <ul style="margin-left: 20px;">
+                            <li><strong>📦 Stage 1:</strong> Tworzy podstawowe produkty (nazwa, ceny, stock, kategorie,
+                                opisy)</li>
+                            <li><strong>🏷️ Stage 2:</strong> Dodaje atrybuty i generuje warianty produktów</li>
+                            <li><strong>📷 Stage 3:</strong> Importuje i konwertuje obrazy do WebP</li>
+                        </ul>
+                        <p><strong>💡 Auto-restart:</strong> System automatycznie wykrywa zawieszenia i restartuje proces z
+                            tego samego miejsca!</p>
+                    </div>
+
+                    <div style="text-align: center; margin: 20px 0;">
+                        <a href="<?php echo plugin_dir_url(dirname(dirname(__FILE__))); ?>cron-manager.php?admin_key=mhi_import_access"
+                            class="button button-primary button-hero" target="_blank"
+                            style="background: linear-gradient(45deg, #667eea, #764ba2); border: none; box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4); padding: 20px 40px; font-size: 16px;">
+                            <span class="dashicons dashicons-performance"
+                                style="font-size: 20px; margin-right: 8px;"></span>
+                            <?php _e('🚀 Otwórz Manager Cronów', 'multi-hurtownie-integration'); ?>
+                        </a>
+                    </div>
+
+                    <div class="notice notice-info inline">
+                        <p><strong><?php _e('Tip:', 'multi-hurtownie-integration'); ?></strong>
+                            <?php _e('Manager otworzy się w nowej karcie. Możesz uruchamiać wiele etapów równocześnie dla różnych hurtowni.', 'multi-hurtownie-integration'); ?>
+                        </p>
+                    </div>
+                </div>
+            </div>
+
             <div class="postbox">
                 <div class="postbox-header">
                     <h2><span class="dashicons dashicons-admin-settings"></span>
