@@ -695,23 +695,41 @@ $start_time = microtime(true);
         $product->set_sku($sku);
         $product->set_status('publish');
 
-        // Ceny
+        // POPRAWIONE CENY dla ANDA - używaj amount z sekcji <prices>
         $regular_price = str_replace(',', '.', trim((string) $product_xml->regular_price));
+
         if (is_numeric($regular_price) && floatval($regular_price) > 0) {
             $product->set_regular_price($regular_price);
+            addLog("   💰 ANDA: Cena regularna z XML: $regular_price PLN", "info");
+        } else {
+            addLog("   ⚠️ ANDA: regular_price=$regular_price - sprawdzenie czy generator użył prices.xml", "warning");
+
+            // Spróbuj z fallback - może być w currency lub gdzie indziej
+            $fallback_price = floatval($regular_price);
+            if ($fallback_price > 0) {
+                $product->set_regular_price($fallback_price);
+                addLog("   💰 ANDA: Użyto fallback price: $fallback_price PLN", "info");
+            } else {
+                addLog("   ❌ ANDA: Brak prawidłowej ceny regular_price", "error");
+            }
         }
 
+        // Cena promocyjna
         $sale_price = str_replace(',', '.', trim((string) $product_xml->sale_price));
         if (is_numeric($sale_price) && floatval($sale_price) > 0) {
             $product->set_sale_price($sale_price);
+            addLog("   🔥 ANDA: Cena promocyjna: $sale_price PLN", "info");
         }
 
-        // Stock
+        // POPRAWIONY STOCK dla ANDA - używaj amount z sekcji <inventories> type=central_stock
         $stock_qty = trim((string) $product_xml->stock_quantity);
         if (is_numeric($stock_qty)) {
             $product->set_manage_stock(true);
             $product->set_stock_quantity((int) $stock_qty);
-            $product->set_stock_status('instock');
+            $product->set_stock_status($stock_qty > 0 ? 'instock' : 'outofstock');
+            addLog("   📦 ANDA: Stan magazynowy: $stock_qty", "info");
+        } else {
+            addLog("   ⚠️ ANDA: Brak stanu magazynowego lub nieprawidłowy: '$stock_qty'", "warning");
         }
 
         // Wymiary
@@ -728,23 +746,22 @@ $start_time = microtime(true);
         if (!$product_id)
             return false;
 
-        // Kategorie - obsługa zarówno Malfini (string) jak i Axpol (XML lista)
+        // POPRAWIONE KATEGORIE dla ANDA - obsługa nowej struktury
         if (isset($product_xml->categories)) {
             $categories_data = $product_xml->categories;
 
-            // Sprawdź czy to string (Malfini) czy XML object (Axpol)
+            // ANDA ma strukturę: <categories><category><name>...</name><id>...</id><path>...</path></category></categories>
             if (isset($categories_data->category)) {
-                // AXPOL format - lista kategorii
-                $category_ids = process_product_categories($categories_data);
+                $category_ids = process_anda_categories($categories_data);
             } else {
-                // MALFINI format - jeden string
+                // Fallback dla innych formatów
                 $categories_text = html_entity_decode(trim((string) $categories_data), ENT_QUOTES, 'UTF-8');
                 $category_ids = process_product_categories($categories_text);
             }
 
             if (!empty($category_ids)) {
                 wp_set_object_terms($product_id, $category_ids, 'product_cat');
-                addLog("   📂 Kategorie: " . count($category_ids) . " kategorii", "info");
+                addLog("   📂 ANDA: Przypisano " . count($category_ids) . " kategorii", "info");
             }
         }
 
@@ -754,7 +771,7 @@ $start_time = microtime(true);
             process_product_brand($brand_name, $product_id);
         }
 
-        // Przetwórz meta_data z XML (Axpol ma dodatkowe dane)
+        // Przetwórz meta_data z XML (ANDA ma dodatkowe dane)
         if (isset($product_xml->meta_data)) {
             foreach ($product_xml->meta_data as $meta) {
                 $key = trim((string) $meta->key);
@@ -762,7 +779,7 @@ $start_time = microtime(true);
 
                 if (!empty($key) && !empty($value)) {
                     update_post_meta($product_id, $key, $value);
-                    addLog("   📝 Meta: $key = $value", "info");
+                    addLog("   📝 ANDA Meta: $key = $value", "info");
                 }
             }
         }
@@ -783,7 +800,7 @@ $start_time = microtime(true);
 
         // Sprawdź czy Stage 1 został ukończony
         if (get_post_meta($product_id, '_mhi_stage_1_done', true) !== 'yes') {
-            addLog("⚠️ Stage 1 nie został ukończony - pomijam", "warning");
+            addLog("⚠️ Stage 2: Stage 1 nie został ukończony - pomijam", "warning");
             return 'skipped';
         }
 
@@ -808,8 +825,22 @@ $start_time = microtime(true);
                 if (empty($attr_name) || empty($attr_value))
                     continue;
 
-                $values = array_map('trim', explode(',', $attr_value));
-                $values = array_filter($values);
+                // SPECJALNA OBSŁUGA dla technologii druku ANDA
+                if (
+                    strpos(strtolower($attr_name), 'technolog') !== false ||
+                    strpos(strtolower($attr_name), 'znakowanie') !== false
+                ) {
+                    addLog("   🖨️ ANDA: Znaleziono technologie znakowania: $attr_value", "info");
+
+                    // Nie tworzymy wariantów z technologii - tylko zwykły atrybut do wyboru
+                    $values = array_map('trim', explode(',', $attr_value));
+                    $values = array_filter($values);
+                } else {
+                    // Standardowe atrybuty
+                    $values = array_map('trim', explode(',', $attr_value));
+                    $values = array_filter($values);
+                }
+
                 if (empty($values))
                     continue;
 
@@ -858,31 +889,25 @@ $start_time = microtime(true);
                 }
 
                 if (!empty($term_ids)) {
-                    // Obsługa różnych formatów: Malfini vs Axpol
-                    if (isset($attribute_xml->variation)) {
-                        // MALFINI format - ma pole variation
-                        $is_variation = trim((string) $attribute_xml->variation) === 'yes';
-                    } else {
-                        // AXPOL format - sprawdź czy może być wariantem
-                        $attr_name_lower = strtolower($attr_name);
-                        $has_multiple_values = strpos($attr_value, ',') !== false;
+                    // ANDA: Technologie NIE są wariantami - tylko atrybutami do wyboru
+                    $attr_name_lower = strtolower($attr_name);
+                    $is_technology = (strpos($attr_name_lower, 'technolog') !== false ||
+                        strpos($attr_name_lower, 'znakowanie') !== false);
 
-                        // Typowe nazwy wariantów
-                        $variant_names = ['kolor', 'rozmiar', 'wielkość', 'size', 'color', 'colour'];
-                        $is_potential_variant = $has_multiple_values || in_array($attr_name_lower, $variant_names);
+                    // Dla ANDA: tylko podstawowe atrybuty mogą być wariantami (kolor, rozmiar)
+                    $variant_names = ['kolor', 'rozmiar', 'wielkość', 'size', 'color', 'colour', 'kolor główny'];
+                    $has_multiple_values = strpos($attr_value, ',') !== false;
+                    $is_variation = !$is_technology && $has_multiple_values && in_array($attr_name_lower, $variant_names);
 
-                        // Dla Axpol domyślnie nie tworzymy wariantów
-                        $is_variation = false;
-
-                        addLog("   🏷️ AXPOL: $attr_name = $attr_value" . ($is_potential_variant ? ' (potencjał wariantu)' : ''), "info");
-                    }
+                    $type_msg = $is_technology ? ' (TECHNOLOGIA - atrybut)' : ($is_variation ? ' (WARIANT)' : ' (atrybut)');
+                    addLog("   🏷️ ANDA: $attr_name = $attr_value$type_msg", "info");
 
                     $wc_attribute = new WC_Product_Attribute();
                     $wc_attribute->set_id($attribute_id);
                     $wc_attribute->set_name($taxonomy);
                     $wc_attribute->set_options($term_ids);
                     $wc_attribute->set_visible(true);
-                    $wc_attribute->set_variation($is_variation);
+                    $wc_attribute->set_variation($is_variation); // Technologie = false
                     $wc_attributes[] = $wc_attribute;
 
                     $attributes_to_assign[] = [
@@ -909,6 +934,7 @@ $start_time = microtime(true);
 
                     if (!empty($variation_attributes)) {
                         generate_product_variations($product_id, $variation_attributes, $product_xml);
+                        addLog("   🔄 ANDA: Wygenerowano warianty z " . count($variation_attributes) . " atrybutów", "info");
                     }
                 }
             }
@@ -1413,6 +1439,83 @@ $start_time = microtime(true);
     {
         echo '<script>addLog(' . json_encode($message) . ', "' . $type . '");</script>';
         flush();
+    }
+
+    // NOWA funkcja do obsługi kategorii ANDA (format jak Axpol)
+    function process_anda_categories($categories_data)
+    {
+        if (empty($categories_data) || !isset($categories_data->category)) {
+            return [];
+        }
+
+        $category_ids = [];
+
+        // ANDA teraz ma format jak Axpol: <categories><category>DO PISANIA</category><category>DO PISANIA > długopisy</category></categories>
+        foreach ($categories_data->category as $category) {
+            $cat_name = trim((string) $category);
+
+            if (empty($cat_name)) {
+                continue;
+            }
+
+            addLog("   📂 ANDA kategoria: $cat_name", "info");
+
+            // Sprawdź czy jest hierarchia (separator > lub >>)
+            if (strpos($cat_name, ' > ') !== false || strpos($cat_name, '>') !== false) {
+                // Utwórz hierarchię z pełnej nazwy
+                $path_categories = preg_split('/\s*>\s*/', $cat_name);
+                $parent_id = 0;
+
+                foreach ($path_categories as $path_cat_name) {
+                    $path_cat_name = trim($path_cat_name);
+                    if (empty($path_cat_name))
+                        continue;
+
+                    // Sprawdź czy kategoria już istnieje
+                    $existing_term = get_term_by('name', $path_cat_name, 'product_cat');
+                    if ($existing_term) {
+                        $current_cat_id = $existing_term->term_id;
+                    } else {
+                        // Utwórz nową kategorię
+                        $term_data = wp_insert_term(
+                            $path_cat_name,
+                            'product_cat',
+                            array('parent' => $parent_id)
+                        );
+
+                        if (!is_wp_error($term_data)) {
+                            $current_cat_id = $term_data['term_id'];
+                            addLog("     ✅ Utworzono kategorię: $path_cat_name", "success");
+                        } else {
+                            addLog("     ❌ Błąd tworzenia kategorii: $path_cat_name", "error");
+                            continue;
+                        }
+                    }
+
+                    $parent_id = $current_cat_id; // Następna będzie podkategorią
+                }
+
+                // Ostatnia kategoria z hierarchii jest główną dla produktu
+                if (!empty($current_cat_id)) {
+                    $category_ids[] = $current_cat_id;
+                }
+
+            } else {
+                // Prosta kategoria bez hierarchii
+                $existing_term = get_term_by('name', $cat_name, 'product_cat');
+                if ($existing_term) {
+                    $category_ids[] = $existing_term->term_id;
+                } else {
+                    $term_data = wp_insert_term($cat_name, 'product_cat');
+                    if (!is_wp_error($term_data)) {
+                        $category_ids[] = $term_data['term_id'];
+                        addLog("     ✅ Utworzono prostą kategorię: $cat_name", "success");
+                    }
+                }
+            }
+        }
+
+        return array_unique($category_ids);
     }
 
     ?>

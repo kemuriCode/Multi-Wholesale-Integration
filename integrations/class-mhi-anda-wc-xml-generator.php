@@ -336,9 +336,9 @@ class MHI_ANDA_WC_XML_Generator
         $this->prices_data = $this->load_xml_file('prices.xml', 'price', 0);
         error_log('MHI ANDA: Wczytano ' . count($this->prices_data) . ' cen');
 
-        // Wczytaj wszystkie stany magazynowe
-        $this->inventories_data = $this->load_xml_file('inventories.xml', 'inventory', 0);
-        error_log('MHI ANDA: Wczytano ' . count($this->inventories_data) . ' stanów magazynowych');
+        // Wczytaj wszystkie stany magazynowe - element to 'record' nie 'inventory'
+        $this->inventories_data = $this->load_xml_file('inventories.xml', 'record', 0);
+        error_log('MHI ANDA: Wczytano ' . count($this->inventories_data) . ' rekordów magazynowych');
 
         // Wczytaj wszystkie kategorie
         $this->categories_data = $this->load_categories_xml();
@@ -600,11 +600,19 @@ class MHI_ANDA_WC_XML_Generator
                         $xml = simplexml_import_dom($element);
                         $item_array = $this->xml_to_array($xml);
 
-                        // Używaj itemNumber jako klucza dla produktów i cen
-                        if ($element_name === 'product' || $element_name === 'price') {
+                        // Używaj itemNumber jako klucza dla produktów, cen i inventory records
+                        if ($element_name === 'product' || $element_name === 'price' || $element_name === 'record') {
                             $key = (string) $xml->itemNumber;
                             if (!empty($key)) {
-                                $data[$key] = $item_array;
+                                // Dla record (inventories) możemy mieć multiple entries per itemNumber
+                                if ($element_name === 'record') {
+                                    if (!isset($data[$key])) {
+                                        $data[$key] = [];
+                                    }
+                                    $data[$key][] = $item_array;
+                                } else {
+                                    $data[$key] = $item_array;
+                                }
                             }
                         } else {
                             $data[] = $item_array;
@@ -1833,45 +1841,126 @@ class MHI_ANDA_WC_XML_Generator
     }
 
     /**
-     * Pobiera cenę produktu.
-     *
+     * Pobiera cenę produktu z nowej struktury ANDA (prices.xml).
+     * 
      * @param string $item_number
      * @return array
      */
     private function get_product_price($item_number)
     {
-        // Sprawdź bezpośrednie mapowanie po itemNumber
-        if (isset($this->prices_data[$item_number])) {
-            return $this->prices_data[$item_number];
-        }
+        $price_data = [];
 
         // Przeszukaj wszystkie ceny po itemNumber
-        foreach ($this->prices_data as $price_item) {
-            if (isset($price_item['itemNumber']) && $price_item['itemNumber'] === $item_number) {
-                return $price_item;
+        if (!empty($this->prices_data)) {
+            foreach ($this->prices_data as $price_item) {
+                if (isset($price_item['itemNumber']) && $price_item['itemNumber'] === $item_number) {
+                    // ANDA struktura: <price><itemNumber>...</itemNumber><amount>...</amount><type>listPrice/discountPrice</type></price>
+                    $type = $price_item['type'] ?? '';
+                    $amount = $price_item['amount'] ?? '0';
+                    $currency = $price_item['currency'] ?? 'PLN';
+
+                    if ($type === 'listPrice') {
+                        $price_data['listPrice'] = $amount;
+                        $price_data['regular_price'] = $amount;
+                        $price_data['currency'] = $currency;
+                        error_log("MHI ANDA: Znaleziono listPrice dla $item_number: $amount $currency");
+                    } elseif ($type === 'discountPrice') {
+                        $price_data['discountPrice'] = $amount;
+                        $price_data['sale_price'] = $amount;
+                        error_log("MHI ANDA: Znaleziono discountPrice dla $item_number: $amount $currency");
+                    }
+                }
             }
         }
 
         // Loguj brak ceny dla debugowania
-        error_log("MHI ANDA: Brak ceny dla produktu: $item_number");
+        if (empty($price_data)) {
+            error_log("MHI ANDA: Brak ceny dla produktu: $item_number");
+        }
 
-        return [];
+        return $price_data;
     }
 
     /**
-     * Pobiera stan magazynowy produktu.
+     * Pobiera stan magazynowy produktu z inventories.xml po itemNumber.
+     * Struktura ANDA: <record><itemNumber>AP892006</itemNumber><type>central_stock</type><amount>0</amount></record>
+     * Teraz inventories_data[itemNumber] = [array of records]
      *
      * @param string $item_number
      * @return string
      */
     private function get_product_stock($item_number)
     {
-        foreach ($this->inventories_data as $inventory) {
-            if (isset($inventory['itemNumber']) && $inventory['itemNumber'] === $item_number) {
-                return isset($inventory['quantity']) ? $inventory['quantity'] : '0';
+        $central_stock = 0;
+        $incoming_stock = 0;
+        $found_records = 0;
+
+        // Sprawdź czy mamy bezpośrednio rekordy dla tego itemNumber
+        if (!empty($this->inventories_data[$item_number])) {
+            $records = $this->inventories_data[$item_number];
+
+            // Jeśli jest tablica rekordów
+            if (is_array($records)) {
+                foreach ($records as $inventory) {
+                    $type = trim($inventory['type'] ?? '');
+                    $amount = intval($inventory['amount'] ?? '0');
+                    $found_records++;
+
+                    // Zbierz różne typy stock
+                    if ($type === 'central_stock') {
+                        $central_stock = $amount;
+                        error_log("MHI ANDA STOCK: ✅ central_stock dla $item_number: $amount");
+                    } elseif ($type === 'incoming_to_central_stock') {
+                        $incoming_stock += $amount; // Możemy sumować incoming
+                        error_log("MHI ANDA STOCK: 📥 incoming_stock dla $item_number: $amount");
+                    } else {
+                        error_log("MHI ANDA STOCK: ℹ️ Nieznany typ '$type' dla $item_number (amount: $amount)");
+                    }
+                }
+            }
+        } else {
+            // Fallback - przeszukaj wszystkie rekordy (stara metoda)
+            if (!empty($this->inventories_data)) {
+                foreach ($this->inventories_data as $key => $records) {
+                    if (is_array($records)) {
+                        foreach ($records as $inventory) {
+                            if (isset($inventory['itemNumber']) && trim($inventory['itemNumber']) === trim($item_number)) {
+                                $type = trim($inventory['type'] ?? '');
+                                $amount = intval($inventory['amount'] ?? '0');
+                                $found_records++;
+
+                                if ($type === 'central_stock') {
+                                    $central_stock = $amount;
+                                    error_log("MHI ANDA STOCK: ✅ (fallback) central_stock dla $item_number: $amount");
+                                } elseif ($type === 'incoming_to_central_stock') {
+                                    $incoming_stock += $amount;
+                                    error_log("MHI ANDA STOCK: 📥 (fallback) incoming_stock dla $item_number: $amount");
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
-        return '0';
+
+        // Logika obliczania finalnego stock
+        $final_stock = $central_stock; // Głównie central_stock
+
+        // Opcjonalnie: jeśli central_stock = 0, ale jest incoming, można użyć incoming
+        // if ($final_stock === 0 && $incoming_stock > 0) {
+        //     $final_stock = $incoming_stock;
+        //     error_log("MHI ANDA STOCK: 🔄 Używam incoming_stock dla $item_number: $incoming_stock");
+        // }
+
+        if ($found_records === 0) {
+            error_log("MHI ANDA STOCK: ❌ Brak rekordów dla produktu: $item_number");
+        } elseif ($final_stock === 0) {
+            error_log("MHI ANDA STOCK: ⚠️ Stock = 0 dla $item_number (central: $central_stock, incoming: $incoming_stock)");
+        } else {
+            error_log("MHI ANDA STOCK: 📦 Finalne stock dla $item_number: $final_stock (central: $central_stock)");
+        }
+
+        return (string) $final_stock;
     }
 
     /**
@@ -2060,23 +2149,22 @@ class MHI_ANDA_WC_XML_Generator
     }
 
     /**
-     * Dodaje dane cenowe do produktu.
-     *
-     * @param DOMDocument $xml
-     * @param DOMElement $product_element
-     * @param array $price_data
+     * POPRAWIONA funkcja dodająca ceny zgodnie z nową strukturą ANDA.
      */
     private function add_pricing_data($xml, $product_element, $price_data)
     {
-        // Cena regularna (netto)
-        if (!empty($price_data['listPrice'])) {
-            $this->add_xml_element($xml, $product_element, 'regular_price', $price_data['listPrice']);
+        // Cena regularna (listPrice)
+        if (!empty($price_data['regular_price']) || !empty($price_data['listPrice'])) {
+            $regular_price = $price_data['regular_price'] ?? $price_data['listPrice'];
+            $this->add_xml_element($xml, $product_element, 'regular_price', $regular_price);
+            error_log("MHI ANDA: Dodano regular_price: $regular_price");
         }
 
-        // Cena brutto (z VAT 23%)
-        if (!empty($price_data['listPrice'])) {
-            $gross_price = floatval($price_data['listPrice']) * 1.23;
-            $this->add_xml_element($xml, $product_element, 'regular_price_gross', number_format($gross_price, 2, '.', ''));
+        // Cena promocyjna (discountPrice)
+        if (!empty($price_data['sale_price']) || !empty($price_data['discountPrice'])) {
+            $sale_price = $price_data['sale_price'] ?? $price_data['discountPrice'];
+            $this->add_xml_element($xml, $product_element, 'sale_price', $sale_price);
+            error_log("MHI ANDA: Dodano sale_price: $sale_price");
         }
 
         // Waluta
@@ -2115,18 +2203,24 @@ class MHI_ANDA_WC_XML_Generator
         }
 
         foreach ($product_categories as $category_info) {
-            if (!in_array($category_info['name'], $categories_added)) {
+            $category_name = $category_info['name'];
+            $category_path = $category_info['path'] ?? $category_name;
+
+            // KATEGORIE JAK W AXPOL - proste <category>nazwa</category>
+            if (!in_array($category_name, $categories_added)) {
+                // Główna kategoria
                 $category_element = $xml->createElement('category');
-
-                $this->add_xml_element($xml, $category_element, 'name', $category_info['name']);
-                $this->add_xml_element($xml, $category_element, 'id', $category_info['id']);
-
-                if (!empty($category_info['path'])) {
-                    $this->add_xml_element($xml, $category_element, 'path', $category_info['path']);
-                }
-
+                $category_element->nodeValue = htmlspecialchars($category_name, ENT_QUOTES, 'UTF-8');
                 $categories_element->appendChild($category_element);
-                $categories_added[] = $category_info['name'];
+                $categories_added[] = $category_name;
+
+                // Jeśli jest hierarchia (path), dodaj też pełną ścieżkę
+                if (!empty($category_path) && $category_path !== $category_name) {
+                    $full_path_element = $xml->createElement('category');
+                    $full_path_element->nodeValue = htmlspecialchars($category_path, ENT_QUOTES, 'UTF-8');
+                    $categories_element->appendChild($full_path_element);
+                    error_log("MHI ANDA: Dodano hierarchię kategorii: $category_path");
+                }
             }
         }
     }
@@ -2387,39 +2481,15 @@ class MHI_ANDA_WC_XML_Generator
     }
 
     /**
-     * Dodaje technologie druku jako atrybuty produktu.
-     *
-     * @param DOMDocument $xml
-     * @param DOMElement $product_element
-     * @param array $product
+     * POPRAWIONA funkcja dodająca technologie druku jako zwykłe atrybuty (bez cen).
      */
     private function add_printing_technologies_as_attributes($xml, $product_element, $product)
     {
-        $printing_section = $xml->createElement('printing_technologies');
-        $product_element->appendChild($printing_section);
-
         // Znajdź odpowiednie technologie dla tego produktu
         $suitable_technologies = $this->get_suitable_printing_technologies($product);
 
         if (!empty($suitable_technologies)) {
-            foreach ($suitable_technologies as $tech_data) {
-                $tech_element = $xml->createElement('technology');
-
-                $this->add_xml_element($xml, $tech_element, 'code', $tech_data['code']);
-                $this->add_xml_element($xml, $tech_element, 'name', $tech_data['name']);
-
-                // Dodaj cenniki jeśli dostępne
-                if (!empty($this->printing_prices_data[$tech_data['code']])) {
-                    $price_data = $this->printing_prices_data[$tech_data['code']];
-                    $this->add_printing_price_ranges($xml, $tech_element, $price_data);
-                }
-
-                $printing_section->appendChild($tech_element);
-            }
-        }
-
-        // Dodaj też jako zwykłe atrybuty
-        if (!empty($suitable_technologies)) {
+            // Dodaj technologie jako zwykły atrybut
             $tech_names = array_map(function ($tech) {
                 return $tech['name'];
             }, $suitable_technologies);
@@ -2429,46 +2499,19 @@ class MHI_ANDA_WC_XML_Generator
             $attributes_nodes = $xpath->query('attributes', $product_element);
             if ($attributes_nodes->length > 0) {
                 $attributes_element = $attributes_nodes->item(0);
-                $this->add_complete_attribute($xml, $attributes_element, 'Dostępne technologie znakowania', implode(', ', $tech_names));
-            }
-        }
-    }
-
-    /**
-     * Dodaje cenniki technologii druku.
-     *
-     * @param DOMDocument $xml
-     * @param DOMElement $tech_element
-     * @param array $price_data
-     */
-    private function add_printing_price_ranges($xml, $tech_element, $price_data)
-    {
-        if (empty($price_data['ranges'])) {
-            return;
-        }
-
-        $ranges_element = $xml->createElement('price_ranges');
-
-        foreach ($price_data['ranges'] as $range) {
-            $range_element = $xml->createElement('range');
-
-            $this->add_xml_element($xml, $range_element, 'colors', $range['colors'] ?? '');
-            $this->add_xml_element($xml, $range_element, 'qty_from', $range['qty_from'] ?? '');
-            $this->add_xml_element($xml, $range_element, 'qty_to', $range['qty_to'] ?? '');
-            $this->add_xml_element($xml, $range_element, 'unit_price', $range['unit_price'] ?? '');
-            $this->add_xml_element($xml, $range_element, 'setup_cost', $range['setup_cost'] ?? '');
-
-            if (!empty($range['size_from'])) {
-                $this->add_xml_element($xml, $range_element, 'size_from', $range['size_from']);
-            }
-            if (!empty($range['size_to'])) {
-                $this->add_xml_element($xml, $range_element, 'size_to', $range['size_to']);
+            } else {
+                $attributes_element = $xml->createElement('attributes');
+                $product_element->appendChild($attributes_element);
             }
 
-            $ranges_element->appendChild($range_element);
+            // Dodaj technologie jako atrybut z opcjami do wyboru
+            $this->add_complete_attribute($xml, $attributes_element, 'Dostępne technologie znakowania', implode(', ', $tech_names));
+
+            error_log("MHI ANDA: Dodano technologie jako atrybut: " . implode(', ', $tech_names));
         }
 
-        $tech_element->appendChild($ranges_element);
+        // USUŃ sekcję printing_technologies (nie dodajemy jej z cenami)
+        // Zgodnie z wymaganiem użytkownika - technologie mają być tylko jako atrybuty do wyboru
     }
 
     /**
