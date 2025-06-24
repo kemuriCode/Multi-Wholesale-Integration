@@ -287,4 +287,3 @@ class MHI_Axpol_Product_Availability_Display
 if (class_exists('WooCommerce')) {
     new MHI_Axpol_Product_Availability_Display();
 }
-?>
