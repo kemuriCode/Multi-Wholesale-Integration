@@ -55,9 +55,10 @@ $offset = isset($_GET['offset']) ? (int) $_GET['offset'] : 0;
 $auto_continue = isset($_GET['auto_continue']) && $_GET['auto_continue'] === '1';
 $max_products = isset($_GET['max_products']) ? (int) $_GET['max_products'] : 0;
 $force_update = isset($_GET['force_update']) && $_GET['force_update'] === '1';
+$anda_size_variants = isset($_GET['anda_size_variants']) && $_GET['anda_size_variants'] === '1';
 
 // Logowanie parametrów
-error_log("MHI Import: supplier=$supplier, stage=$stage, batch_size=$batch_size, offset=$offset, auto_continue=" . ($auto_continue ? 'TRUE' : 'FALSE') . ", force_update=" . ($force_update ? 'TRUE' : 'FALSE'));
+error_log("MHI Import: supplier=$supplier, stage=$stage, batch_size=$batch_size, offset=$offset, auto_continue=" . ($auto_continue ? 'TRUE' : 'FALSE') . ", force_update=" . ($force_update ? 'TRUE' : 'FALSE') . ", anda_size_variants=" . ($anda_size_variants ? 'TRUE' : 'FALSE'));
 
 if (!in_array($stage, [1, 2, 3])) {
     wp_die('Stage musi być 1, 2 lub 3!');
@@ -499,6 +500,15 @@ $start_time = microtime(true);
         addLog("📊 W tym batch'u: Gotowe=$ready_count | Brak Stage2=$missing_stage2_count | Już zrobione=$already_done_count", "info");
     }
 
+    // ANDA SIZE VARIANTS: Grupuj produkty z rozmiarami przed przetwarzaniem
+    if ($supplier === 'anda' && $anda_size_variants && $stage == 1) {
+        addLog("👕 ANDA: Tryb konwersji rozmiarów na warianty aktywny", "info");
+        $products = group_anda_size_variants($products, $offset, $end_offset);
+        $total = count($products); // Aktualizuj total po grupowaniu
+        $end_offset = min($offset + $batch_size, $total);
+        addLog("📦 ANDA: Po grupowaniu rozmiarów: {$total} produktów głównych", "info");
+    }
+
     // Przetwarzaj batch produktów
     for ($i = $offset; $i < $end_offset; $i++) {
         if (!isset($products[$i]))
@@ -617,6 +627,7 @@ $start_time = microtime(true);
                             var nextUrl = "?supplier=' . $supplier . '&stage=' . $next_stage . '&batch_size=' . $batch_size . '&auto_continue=1";
                             ' . ($max_products > 0 ? 'nextUrl += "&max_products=' . $max_products . '";' : '') . '
                             ' . ($force_update ? 'nextUrl += "&force_update=1";' : '') . '
+                            ' . ($anda_size_variants ? 'nextUrl += "&anda_size_variants=1";' : '') . '
                             window.location.href = nextUrl;
                         }
                     }, 3000);
@@ -643,6 +654,9 @@ $start_time = microtime(true);
             }
             if ($force_update) {
                 $next_url .= "&force_update=1";
+            }
+            if ($anda_size_variants) {
+                $next_url .= "&anda_size_variants=1";
             }
 
             addLog("🔗 Następny URL: " . $next_url, "info");
@@ -1553,6 +1567,111 @@ $start_time = microtime(true);
         }
 
         return array_unique($category_ids);
+    }
+
+    /**
+     * Grupuj produkty ANDA z rozmiarami w SKU na produkty zmienne z wariantami
+     * Przykład: AP4135-03_S, AP4135-03_M, AP4135-03_L → AP4135-03 z wariantami rozmiarów
+     */
+    function group_anda_size_variants($products, $offset, $end_offset)
+    {
+        global $anda_size_variants;
+
+        if (!$anda_size_variants) {
+            return $products;
+        }
+
+        addLog("👕 ANDA: Rozpoczynam grupowanie produktów z rozmiarami...", "info");
+
+        $grouped_products = [];
+        $processed_base_skus = [];
+        $size_pattern = '/_([SMLX]+|XS|XXS|XXXS|XXXXS|\d+)$/'; // Pattern dla rozmiarów
+    
+        for ($i = 0; $i < count($products); $i++) {
+            $product = $products[$i];
+            $sku = trim((string) $product->sku);
+
+            // Sprawdź czy SKU ma rozmiar na końcu
+            if (preg_match($size_pattern, $sku, $matches)) {
+                $base_sku = preg_replace($size_pattern, '', $sku); // Usuń rozmiar z SKU
+                $size = $matches[1]; // Wyciągnij rozmiar
+    
+                addLog("   👕 Znaleziono rozmiar: $sku → base: $base_sku, rozmiar: $size", "info");
+
+                // Sprawdź czy już przetwarzaliśmy ten base SKU
+                if (!isset($processed_base_skus[$base_sku])) {
+                    // Znajdź wszystkie warianty tego produktu
+                    $variants = [];
+                    for ($j = 0; $j < count($products); $j++) {
+                        $check_sku = trim((string) $products[$j]->sku);
+                        if (preg_match('/^' . preg_quote($base_sku, '/') . '_([SMLX]+|XS|XXS|XXXS|XXXXS|\d+)$/', $check_sku, $variant_matches)) {
+                            $variant_size = $variant_matches[1];
+                            $variants[$variant_size] = $products[$j];
+                            addLog("     ➕ Dodano wariant: $check_sku (rozmiar: $variant_size)", "info");
+                        }
+                    }
+
+                    if (count($variants) > 1) {
+                        // Stwórz główny produkt z pierwszego wariantu
+                        $main_product = clone $variants[array_key_first($variants)];
+                        $main_product->sku = $base_sku; // Ustaw base SKU
+                        $main_product->addChild('type', 'variable'); // Oznacz jako zmienny
+    
+                        // Dodaj atrybut rozmiaru
+                        if (!isset($main_product->attributes)) {
+                            $main_product->addChild('attributes', '');
+                        }
+
+                        $size_attribute = $main_product->attributes->addChild('attribute');
+                        $size_attribute->addChild('n', 'Rozmiar');
+                        $size_attribute->addChild('value', implode(' | ', array_keys($variants)));
+                        $size_attribute->addChild('visible', '1');
+                        $size_attribute->addChild('variation', 'yes');
+
+                        // Dodaj wszystkie warianty jako warianty produktu
+                        if (!isset($main_product->variations)) {
+                            $main_product->addChild('variations', '');
+                        }
+
+                        foreach ($variants as $size => $variant) {
+                            $variation_node = $main_product->variations->addChild('variation');
+                            $variation_node->addChild('sku', trim((string) $variant->sku));
+                            $variation_node->addChild('regular_price', trim((string) $variant->regular_price));
+                            $variation_node->addChild('stock_quantity', trim((string) $variant->stock_quantity));
+
+                            $var_attributes = $variation_node->addChild('attributes');
+                            $var_attr = $var_attributes->addChild('attribute');
+                            $var_attr->addChild('n', 'Rozmiar');
+                            $var_attr->addChild('value', $size);
+                        }
+
+                        $grouped_products[] = $main_product;
+                        $processed_base_skus[$base_sku] = true;
+
+                        addLog("   ✅ Utworzono główny produkt: $base_sku z " . count($variants) . " wariantami", "success");
+
+                        // Usuń produkty o poszczególnych rozmiarach z listy importu
+                        foreach ($variants as $variant) {
+                            $variant_sku = trim((string) $variant->sku);
+                            $existing_product_id = wc_get_product_id_by_sku($variant_sku);
+                            if ($existing_product_id) {
+                                wp_delete_post($existing_product_id, true);
+                                addLog("   🗑️ Usunięto duplikat rozmiarowy: $variant_sku", "info");
+                            }
+                        }
+                    } else {
+                        // Tylko jeden rozmiar - dodaj jako zwykły produkt
+                        $grouped_products[] = $product;
+                    }
+                }
+            } else {
+                // Nie ma rozmiaru w SKU - dodaj normalnie
+                $grouped_products[] = $product;
+            }
+        }
+
+        addLog("📦 ANDA: Grupowanie zakończone. Produktów: " . count($products) . " → " . count($grouped_products), "success");
+        return $grouped_products;
     }
 
     ?>

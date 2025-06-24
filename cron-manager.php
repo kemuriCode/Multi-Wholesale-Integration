@@ -290,6 +290,13 @@ if (is_dir($wholesale_dir)) {
                                 <input type="checkbox" class="control-input force-update-check"
                                     data-supplier="<?php echo $supplier; ?>"> Aktualizuj istniejące
                             </div>
+                            <?php if ($supplier === 'anda'): ?>
+                                <div class="control-row">
+                                    <span class="control-label">Rozmiary ANDA:</span>
+                                    <input type="checkbox" class="control-input anda-size-variants-check"
+                                        data-supplier="<?php echo $supplier; ?>"> Konwertuj na warianty
+                                </div>
+                            <?php endif; ?>
                         </div>
 
                         <div class="stages">
@@ -377,11 +384,16 @@ if (is_dir($wholesale_dir)) {
             const autoContinue = document.querySelector(`input.auto-continue-check[data-supplier="${supplier}"]`).checked;
             const maxProducts = document.querySelector(`input.max-products-input[data-supplier="${supplier}"]`).value;
             const forceUpdate = document.querySelector(`input.force-update-check[data-supplier="${supplier}"]`).checked;
+            const andaSizeVariants = document.querySelector(`input.anda-size-variants-check[data-supplier="${supplier}"]`)?.checked || false;
 
             let url = `cron-import.php?supplier=${supplier}&stage=${stage}&batch_size=${batchSize}&offset=${offset}`;
 
             if (forceUpdate) {
                 url += '&force_update=1';
+            }
+
+            if (andaSizeVariants && supplier === 'anda') {
+                url += '&anda_size_variants=1';
             }
 
             if (autoContinue) {
@@ -398,13 +410,15 @@ if (is_dir($wholesale_dir)) {
             if (confirm(`Czy na pewno chcesz uruchomić wszystkie 3 stage'y dla ${supplier}?\n\nTo może zająć dużo czasu!`)) {
                 const batchSize = document.querySelector(`select.batch-size[data-supplier="${supplier}"]`).value;
                 const forceUpdate = document.querySelector(`input.force-update-check[data-supplier="${supplier}"]`).checked;
+                const andaSizeVariants = document.querySelector(`input.anda-size-variants-check[data-supplier="${supplier}"]`)?.checked || false;
 
                 const forceParam = forceUpdate ? '&force_update=1' : '';
+                const andaParam = (andaSizeVariants && supplier === 'anda') ? '&anda_size_variants=1' : '';
 
                 // Otwórz wszystkie 3 stage'y w nowych kartach
-                setTimeout(() => window.open(`cron-import.php?supplier=${supplier}&stage=1&batch_size=${batchSize}${forceParam}`, '_blank'), 0);
-                setTimeout(() => window.open(`cron-import.php?supplier=${supplier}&stage=2&batch_size=${batchSize}${forceParam}`, '_blank'), 2000);
-                setTimeout(() => window.open(`cron-import.php?supplier=${supplier}&stage=3&batch_size=${batchSize}${forceParam}`, '_blank'), 4000);
+                setTimeout(() => window.open(`cron-import.php?supplier=${supplier}&stage=1&batch_size=${batchSize}${forceParam}${andaParam}`, '_blank'), 0);
+                setTimeout(() => window.open(`cron-import.php?supplier=${supplier}&stage=2&batch_size=${batchSize}${forceParam}${andaParam}`, '_blank'), 2000);
+                setTimeout(() => window.open(`cron-import.php?supplier=${supplier}&stage=3&batch_size=${batchSize}${forceParam}${andaParam}`, '_blank'), 4000);
             }
         }
 
