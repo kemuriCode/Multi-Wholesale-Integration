@@ -707,8 +707,8 @@ $start_time = microtime(true);
         $regular_price = null;
 
         // Najpierw sprawdź meta_data dla _anda_price_discountPrice
-        if (isset($product_xml->meta_data)) {
-            foreach ($product_xml->meta_data as $meta) {
+        if (isset($product_xml->meta_data->meta)) {
+            foreach ($product_xml->meta_data->meta as $meta) {
                 $key = trim((string) $meta->key);
                 $value = trim((string) $meta->value);
 
@@ -806,8 +806,8 @@ $start_time = microtime(true);
         }
 
         // Przetwórz meta_data z XML (ANDA ma dodatkowe dane)
-        if (isset($product_xml->meta_data)) {
-            foreach ($product_xml->meta_data as $meta) {
+        if (isset($product_xml->meta_data->meta)) {
+            foreach ($product_xml->meta_data->meta as $meta) {
                 $key = trim((string) $meta->key);
                 $value = trim((string) $meta->value);
 
