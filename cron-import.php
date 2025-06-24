@@ -616,6 +616,7 @@ $start_time = microtime(true);
                         if (confirm("Auto-continue zakończony!\\n\\nCzy chcesz przejść do Stage ' . $next_stage . '?")) {
                             var nextUrl = "?supplier=' . $supplier . '&stage=' . $next_stage . '&batch_size=' . $batch_size . '&auto_continue=1";
                             ' . ($max_products > 0 ? 'nextUrl += "&max_products=' . $max_products . '";' : '') . '
+                            ' . ($force_update ? 'nextUrl += "&force_update=1";' : '') . '
                             window.location.href = nextUrl;
                         }
                     }, 3000);
@@ -639,6 +640,9 @@ $start_time = microtime(true);
             $next_url = "?supplier={$supplier}&stage={$stage}&batch_size={$batch_size}&offset={$next_offset}&auto_continue=1";
             if ($max_products > 0) {
                 $next_url .= "&max_products={$max_products}";
+            }
+            if ($force_update) {
+                $next_url .= "&force_update=1";
             }
 
             addLog("🔗 Następny URL: " . $next_url, "info");
@@ -699,41 +703,67 @@ $start_time = microtime(true);
         $product->set_sku($sku);
         $product->set_status('publish');
 
-        // POPRAWIONE CENY dla ANDA - używaj amount z sekcji <prices>
-        $regular_price = str_replace(',', '.', trim((string) $product_xml->regular_price));
+        // POPRAWIONE CENY dla ANDA - używaj _anda_price_discountPrice jako regular_price
+        $regular_price = null;
 
-        if (is_numeric($regular_price) && floatval($regular_price) > 0) {
-            $product->set_regular_price($regular_price);
-            addLog("   💰 ANDA: Cena regularna z XML: $regular_price PLN", "info");
-        } else {
-            addLog("   ⚠️ ANDA: regular_price=$regular_price - sprawdzenie czy generator użył prices.xml", "warning");
+        // Najpierw sprawdź meta_data dla _anda_price_discountPrice
+        if (isset($product_xml->meta_data)) {
+            foreach ($product_xml->meta_data as $meta) {
+                $key = trim((string) $meta->key);
+                $value = trim((string) $meta->value);
 
-            // Spróbuj z fallback - może być w currency lub gdzie indziej
-            $fallback_price = floatval($regular_price);
-            if ($fallback_price > 0) {
-                $product->set_regular_price($fallback_price);
-                addLog("   💰 ANDA: Użyto fallback price: $fallback_price PLN", "info");
-            } else {
-                addLog("   ❌ ANDA: Brak prawidłowej ceny regular_price", "error");
+                if ($key === '_anda_price_discountPrice' && !empty($value)) {
+                    $regular_price = str_replace(',', '.', $value);
+                    addLog("   💰 ANDA: Znaleziono _anda_price_discountPrice: $regular_price PLN", "info");
+                    break;
+                }
             }
         }
 
-        // Cena promocyjna
+        // Fallback do regular_price z XML jeśli nie ma meta
+        if (empty($regular_price)) {
+            $regular_price = str_replace(',', '.', trim((string) $product_xml->regular_price));
+            if (!empty($regular_price)) {
+                addLog("   💰 ANDA: Fallback do regular_price z XML: $regular_price PLN", "info");
+            }
+        }
+
+        if (is_numeric($regular_price) && floatval($regular_price) > 0) {
+            $product->set_regular_price($regular_price);
+            addLog("   ✅ ANDA: Ustawiono cenę regularną: $regular_price PLN", "success");
+        } else {
+            addLog("   ❌ ANDA: Brak prawidłowej ceny (regular_price=$regular_price)", "error");
+        }
+
+        // Cena promocyjna (opcjonalna)
         $sale_price = str_replace(',', '.', trim((string) $product_xml->sale_price));
         if (is_numeric($sale_price) && floatval($sale_price) > 0) {
             $product->set_sale_price($sale_price);
             addLog("   🔥 ANDA: Cena promocyjna: $sale_price PLN", "info");
         }
 
-        // POPRAWIONY STOCK dla ANDA - używaj amount z sekcji <inventories> type=central_stock
+        // POPRAWIONY STOCK dla ANDA - używaj stock_quantity i stock_status z XML
         $stock_qty = trim((string) $product_xml->stock_quantity);
+        $stock_status = trim((string) $product_xml->stock_status);
+
         if (is_numeric($stock_qty)) {
             $product->set_manage_stock(true);
             $product->set_stock_quantity((int) $stock_qty);
-            $product->set_stock_status($stock_qty > 0 ? 'instock' : 'outofstock');
-            addLog("   📦 ANDA: Stan magazynowy: $stock_qty", "info");
+
+            // Użyj stock_status z XML jeśli dostępny, inaczej oblicz na podstawie qty
+            if (!empty($stock_status)) {
+                $product->set_stock_status($stock_status);
+                addLog("   📦 ANDA: Stan magazynowy: $stock_qty szt., status: $stock_status", "success");
+            } else {
+                $calculated_status = $stock_qty > 0 ? 'instock' : 'outofstock';
+                $product->set_stock_status($calculated_status);
+                addLog("   📦 ANDA: Stan magazynowy: $stock_qty szt., obliczony status: $calculated_status", "info");
+            }
         } else {
             addLog("   ⚠️ ANDA: Brak stanu magazynowego lub nieprawidłowy: '$stock_qty'", "warning");
+            // Ustaw domyślnie na brak zapasów
+            $product->set_manage_stock(false);
+            $product->set_stock_status('outofstock');
         }
 
         // Wymiary
