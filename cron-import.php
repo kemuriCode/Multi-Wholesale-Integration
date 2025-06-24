@@ -717,18 +717,18 @@ $start_time = microtime(true);
         $product->set_sku($sku);
         $product->set_status('publish');
 
-        // POPRAWIONE CENY dla ANDA - używaj _anda_price_discountPrice jako regular_price
+        // POPRAWIONE CENY dla ANDA - używaj _anda_price_listPrice jako regular_price
         $regular_price = null;
 
-        // Najpierw sprawdź meta_data dla _anda_price_discountPrice
+        // Najpierw sprawdź meta_data dla _anda_price_listPrice
         if (isset($product_xml->meta_data->meta)) {
             foreach ($product_xml->meta_data->meta as $meta) {
                 $key = trim((string) $meta->key);
                 $value = trim((string) $meta->value);
 
-                if ($key === '_anda_price_discountPrice' && !empty($value)) {
+                if ($key === '_anda_price_listPrice' && !empty($value)) {
                     $regular_price = str_replace(',', '.', $value);
-                    addLog("   💰 ANDA: Znaleziono _anda_price_discountPrice: $regular_price PLN", "info");
+                    addLog("   💰 ANDA: Znaleziono _anda_price_listPrice: $regular_price PLN", "info");
                     break;
                 }
             }
@@ -749,8 +749,27 @@ $start_time = microtime(true);
             addLog("   ❌ ANDA: Brak prawidłowej ceny (regular_price=$regular_price)", "error");
         }
 
-        // Cena promocyjna (opcjonalna)
-        $sale_price = str_replace(',', '.', trim((string) $product_xml->sale_price));
+        // Cena promocyjna (opcjonalna) - najpierw sprawdź meta_data dla _anda_price_discountPrice
+        $sale_price = null;
+
+        if (isset($product_xml->meta_data->meta)) {
+            foreach ($product_xml->meta_data->meta as $meta) {
+                $key = trim((string) $meta->key);
+                $value = trim((string) $meta->value);
+
+                if ($key === '_anda_price_discountPrice' && !empty($value)) {
+                    $sale_price = str_replace(',', '.', $value);
+                    addLog("   🔥 ANDA: Znaleziono _anda_price_discountPrice: $sale_price PLN", "info");
+                    break;
+                }
+            }
+        }
+
+        // Fallback do sale_price z XML jeśli nie ma meta
+        if (empty($sale_price)) {
+            $sale_price = str_replace(',', '.', trim((string) $product_xml->sale_price));
+        }
+
         if (is_numeric($sale_price) && floatval($sale_price) > 0) {
             $product->set_sale_price($sale_price);
             addLog("   🔥 ANDA: Cena promocyjna: $sale_price PLN", "info");
@@ -842,7 +861,7 @@ $start_time = microtime(true);
 
     function process_stage_2($product_xml, $sku, $name)
     {
-        global $force_update;
+        global $force_update, $supplier, $anda_size_variants;
 
         $product_id = wc_get_product_id_by_sku($sku);
         if (!$product_id)
@@ -862,6 +881,14 @@ $start_time = microtime(true);
         $product = wc_get_product($product_id);
         if (!$product)
             return false;
+
+        // SPECJALNA OBSŁUGA DLA ANDA - tworzenie wariantów z różnych SKU
+        if ($supplier === 'anda' && $anda_size_variants) {
+            $variants_created = process_anda_variants_stage2($sku, $product_id);
+            if ($variants_created) {
+                addLog("🎯 ANDA Stage 2: Utworzono warianty dla $sku", "success");
+            }
+        }
 
         // Przetwarzaj atrybuty
         if (isset($product_xml->attributes->attribute)) {
@@ -1486,6 +1513,360 @@ $start_time = microtime(true);
         return true;
     }
 
+    /**
+     * ANDA: Tworzy warianty produktu w Stage 2 na podstawie różnych SKU z XML
+     * Wyszukuje wszystkie SKU typu base-XX, base_YY i base-XX_YY dla danego base SKU
+     */
+    function process_anda_variants_stage2($base_sku, $product_id)
+    {
+        // Wczytaj XML żeby znaleźć wszystkie warianty tego produktu
+        $upload_dir = wp_upload_dir();
+        $xml_file = trailingslashit($upload_dir['basedir']) . 'wholesale/anda/woocommerce_import_anda.xml';
+
+        if (!file_exists($xml_file)) {
+            addLog("⚠️ ANDA Stage 2: Plik XML nie istnieje: $xml_file", "warning");
+            return false;
+        }
+
+        $xml = simplexml_load_file($xml_file);
+        if (!$xml) {
+            addLog("⚠️ ANDA Stage 2: Błąd parsowania XML", "warning");
+            return false;
+        }
+
+        $products = $xml->children();
+        $variants = [];
+        $colors = [];
+        $sizes = [];
+
+        // Patterny dla wariantów
+        $color_pattern = '/^' . preg_quote($base_sku, '/') . '-(\d{2})$/';
+        $size_pattern = '/^' . preg_quote($base_sku, '/') . '_(S|M|L|XL|XXL|XXXL|XS|XXS|XXXS|XXXXS|\d+[Gg][Bb]?)$/';
+        $combined_pattern = '/^' . preg_quote($base_sku, '/') . '-(\d{2})_(S|M|L|XL|XXL|XXXL|XS|XXS|XXXS|XXXXS|\d+[Gg][Bb]?)$/';
+
+        addLog("🔍 ANDA Stage 2: Szukam wariantów dla base SKU: $base_sku", "info");
+
+        // Przeszukaj XML i znajdź wszystkie warianty
+        foreach ($products as $product_xml) {
+            $variant_sku = trim((string) $product_xml->sku);
+
+            if (preg_match($combined_pattern, $variant_sku, $matches)) {
+                // Kombinowany: kolor + rozmiar
+                $color_code = $matches[1];
+                $size_code = $matches[2];
+                $variants[$variant_sku] = [
+                    'type' => 'combined',
+                    'color' => $color_code,
+                    'size' => $size_code,
+                    'xml' => $product_xml
+                ];
+                $colors[$color_code] = $color_code;
+                $sizes[$size_code] = $size_code;
+                addLog("   🎨👕 Znaleziono wariant kombinowany: $variant_sku (kolor: $color_code, rozmiar: $size_code)", "info");
+
+            } elseif (preg_match($color_pattern, $variant_sku, $matches)) {
+                // Tylko kolor
+                $color_code = $matches[1];
+                $variants[$variant_sku] = [
+                    'type' => 'color',
+                    'color' => $color_code,
+                    'xml' => $product_xml
+                ];
+                $colors[$color_code] = $color_code;
+                addLog("   🎨 Znaleziono wariant koloru: $variant_sku (kolor: $color_code)", "info");
+
+            } elseif (preg_match($size_pattern, $variant_sku, $matches)) {
+                // Tylko rozmiar
+                $size_code = $matches[1];
+                $variants[$variant_sku] = [
+                    'type' => 'size',
+                    'size' => $size_code,
+                    'xml' => $product_xml
+                ];
+                $sizes[$size_code] = $size_code;
+                addLog("   👕 Znaleziono wariant rozmiaru: $variant_sku (rozmiar: $size_code)", "info");
+            }
+        }
+
+        if (empty($variants)) {
+            addLog("ℹ️ ANDA Stage 2: Brak wariantów dla $base_sku", "info");
+            return false;
+        }
+
+        addLog("🎯 ANDA Stage 2: Znaleziono " . count($variants) . " wariantów dla $base_sku", "success");
+
+        // Ustaw produkt jako variable
+        $product = wc_get_product($product_id);
+        if ($product->get_type() !== 'variable') {
+            wp_set_object_terms($product_id, 'variable', 'product_type');
+            $product = new WC_Product_Variable($product_id);
+        }
+
+        $wc_attributes = [];
+
+        // Stwórz atrybut koloru jeśli są kolory
+        if (!empty($colors)) {
+            $color_attribute = create_anda_color_attribute($colors, $product_id);
+            if ($color_attribute) {
+                $wc_attributes[] = $color_attribute;
+                addLog("   🎨 ANDA: Utworzono atrybut koloru z " . count($colors) . " wartościami", "success");
+            }
+        }
+
+        // Stwórz atrybut rozmiaru jeśli są rozmiary
+        if (!empty($sizes)) {
+            $size_attribute = create_anda_size_attribute($sizes, $product_id);
+            if ($size_attribute) {
+                $wc_attributes[] = $size_attribute;
+                addLog("   👕 ANDA: Utworzono atrybut rozmiaru z " . count($sizes) . " wartościami", "success");
+            }
+        }
+
+        // Przypisz atrybuty do produktu
+        if (!empty($wc_attributes)) {
+            $existing_attributes = $product->get_attributes();
+            $all_attributes = array_merge($existing_attributes, $wc_attributes);
+            $product->set_attributes($all_attributes);
+            $product->save();
+        }
+
+        // Utwórz warianty
+        $created_variations = 0;
+        foreach ($variants as $variant_sku => $variant_data) {
+            $variation_created = create_anda_product_variation($product_id, $variant_sku, $variant_data);
+            if ($variation_created) {
+                $created_variations++;
+            }
+        }
+
+        // Synchronizuj produkt variable i odśwież cache
+        if ($created_variations > 0) {
+            WC_Product_Variable::sync($product_id);
+            wc_delete_product_transients($product_id);
+            addLog("🔄 ANDA Stage 2: Zsynchronizowano produkt variable", "info");
+        }
+
+        addLog("✅ ANDA Stage 2: Utworzono $created_variations wariantów dla produktu $base_sku", "success");
+        return $created_variations > 0;
+    }
+
+    /**
+     * Tworzy atrybut koloru dla ANDA
+     */
+    function create_anda_color_attribute($colors, $product_id)
+    {
+        $attr_name = 'Kolor';
+        $attr_slug = 'kolor';
+        $taxonomy = 'pa_kolor';
+
+        // Stwórz globalny atrybut jeśli nie istnieje
+        $attribute_id = wc_attribute_taxonomy_id_by_name($attr_slug);
+        if (!$attribute_id) {
+            $attribute_id = wc_create_attribute([
+                'name' => $attr_name,
+                'slug' => $attr_slug,
+                'type' => 'select',
+                'order_by' => 'menu_order',
+                'has_archives' => false
+            ]);
+        }
+
+        if (!taxonomy_exists($taxonomy)) {
+            register_taxonomy($taxonomy, 'product', [
+                'hierarchical' => false,
+                'show_ui' => false,
+                'query_var' => true,
+                'rewrite' => false,
+                'public' => false,
+            ]);
+        }
+
+        // Utwórz terminy kolorów
+        $term_ids = [];
+        foreach ($colors as $color_code) {
+            $color_name = "Kolor $color_code";
+            $term = get_term_by('slug', $color_code, $taxonomy);
+            if (!$term) {
+                $term = wp_insert_term($color_name, $taxonomy, ['slug' => $color_code]);
+                if (!is_wp_error($term)) {
+                    $term_ids[] = $term['term_id'];
+                }
+            } else {
+                $term_ids[] = $term->term_id;
+            }
+        }
+
+        if (!empty($term_ids)) {
+            wp_set_object_terms($product_id, $term_ids, $taxonomy);
+
+            $wc_attribute = new WC_Product_Attribute();
+            $wc_attribute->set_id($attribute_id);
+            $wc_attribute->set_name($taxonomy);
+            $wc_attribute->set_options($term_ids);
+            $wc_attribute->set_visible(true);
+            $wc_attribute->set_variation(true);
+
+            return $wc_attribute;
+        }
+
+        return null;
+    }
+
+    /**
+     * Tworzy atrybut rozmiaru dla ANDA
+     */
+    function create_anda_size_attribute($sizes, $product_id)
+    {
+        $attr_name = 'Rozmiar';
+        $attr_slug = 'rozmiar';
+        $taxonomy = 'pa_rozmiar';
+
+        // Stwórz globalny atrybut jeśli nie istnieje
+        $attribute_id = wc_attribute_taxonomy_id_by_name($attr_slug);
+        if (!$attribute_id) {
+            $attribute_id = wc_create_attribute([
+                'name' => $attr_name,
+                'slug' => $attr_slug,
+                'type' => 'select',
+                'order_by' => 'menu_order',
+                'has_archives' => false
+            ]);
+        }
+
+        if (!taxonomy_exists($taxonomy)) {
+            register_taxonomy($taxonomy, 'product', [
+                'hierarchical' => false,
+                'show_ui' => false,
+                'query_var' => true,
+                'rewrite' => false,
+                'public' => false,
+            ]);
+        }
+
+        // Utwórz terminy rozmiarów
+        $term_ids = [];
+        foreach ($sizes as $size_code) {
+            $term = get_term_by('slug', strtolower($size_code), $taxonomy);
+            if (!$term) {
+                $term = wp_insert_term($size_code, $taxonomy, ['slug' => strtolower($size_code)]);
+                if (!is_wp_error($term)) {
+                    $term_ids[] = $term['term_id'];
+                }
+            } else {
+                $term_ids[] = $term->term_id;
+            }
+        }
+
+        if (!empty($term_ids)) {
+            wp_set_object_terms($product_id, $term_ids, $taxonomy);
+
+            $wc_attribute = new WC_Product_Attribute();
+            $wc_attribute->set_id($attribute_id);
+            $wc_attribute->set_name($taxonomy);
+            $wc_attribute->set_options($term_ids);
+            $wc_attribute->set_visible(true);
+            $wc_attribute->set_variation(true);
+
+            return $wc_attribute;
+        }
+
+        return null;
+    }
+
+    /**
+     * Tworzy pojedynczy wariant produktu ANDA
+     */
+    function create_anda_product_variation($product_id, $variant_sku, $variant_data)
+    {
+        // Sprawdź czy wariant już istnieje
+        $existing_variation_id = wc_get_product_id_by_sku($variant_sku);
+        if ($existing_variation_id) {
+            $variation = wc_get_product($existing_variation_id);
+            if ($variation && $variation->get_parent_id() == $product_id) {
+                addLog("   ⏭️ Wariant już istnieje: $variant_sku", "info");
+                return true;
+            }
+        }
+
+        $variation = new WC_Product_Variation();
+        $variation->set_parent_id($product_id);
+        $variation->set_sku($variant_sku);
+
+        // Ustaw atrybuty wariantu
+        $attributes = [];
+        if (isset($variant_data['color'])) {
+            $attributes['pa_kolor'] = $variant_data['color'];
+        }
+        if (isset($variant_data['size'])) {
+            $attributes['pa_rozmiar'] = strtolower($variant_data['size']);
+        }
+        $variation->set_attributes($attributes);
+
+        // Ustaw ceny z XML wariantu
+        $variant_xml = $variant_data['xml'];
+
+        // Cena regularna - sprawdź meta_data dla _anda_price_listPrice
+        $regular_price = null;
+        if (isset($variant_xml->meta_data->meta)) {
+            foreach ($variant_xml->meta_data->meta as $meta) {
+                $key = trim((string) $meta->key);
+                $value = trim((string) $meta->value);
+                if ($key === '_anda_price_listPrice' && !empty($value)) {
+                    $regular_price = str_replace(',', '.', $value);
+                    break;
+                }
+            }
+        }
+        if (empty($regular_price)) {
+            $regular_price = str_replace(',', '.', trim((string) $variant_xml->regular_price));
+        }
+        if (is_numeric($regular_price) && floatval($regular_price) > 0) {
+            $variation->set_regular_price($regular_price);
+        }
+
+        // Cena promocyjna
+        $sale_price = null;
+        if (isset($variant_xml->meta_data->meta)) {
+            foreach ($variant_xml->meta_data->meta as $meta) {
+                $key = trim((string) $meta->key);
+                $value = trim((string) $meta->value);
+                if ($key === '_anda_price_discountPrice' && !empty($value)) {
+                    $sale_price = str_replace(',', '.', $value);
+                    break;
+                }
+            }
+        }
+        if (empty($sale_price)) {
+            $sale_price = str_replace(',', '.', trim((string) $variant_xml->sale_price));
+        }
+        if (is_numeric($sale_price) && floatval($sale_price) > 0) {
+            $variation->set_sale_price($sale_price);
+        }
+
+        // Stan magazynowy
+        $stock_qty = trim((string) $variant_xml->stock_quantity);
+        if (is_numeric($stock_qty)) {
+            $variation->set_manage_stock(true);
+            $variation->set_stock_quantity((int) $stock_qty);
+            $variation->set_stock_status($stock_qty > 0 ? 'instock' : 'outofstock');
+        }
+
+        // Wymiary
+        if (!empty((string) $variant_xml->weight)) {
+            $variation->set_weight((string) $variant_xml->weight);
+        }
+
+        $variation->set_status('publish');
+        $variation_id = $variation->save();
+
+        if ($variation_id) {
+            addLog("   ✅ Utworzono wariant: $variant_sku (ID: $variation_id)", "success");
+            return true;
+        }
+
+        return false;
+    }
+
     function addLog($message, $type = "info")
     {
         echo '<script>addLog(' . json_encode($message) . ', "' . $type . '");</script>';
@@ -1570,8 +1951,9 @@ $start_time = microtime(true);
     }
 
     /**
-     * Grupuj produkty ANDA z rozmiarami w SKU na produkty zmienne z wariantami
-     * Przykład: AP4135-03_S, AP4135-03_M, AP4135-03_L → AP4135-03 z wariantami rozmiarów
+     * ANDA: Grupuj produkty z wariantami (rozmiary + kolory) i zostaw tylko czyste SKU dla Stage 1
+     * Przykład: AP4135-03_S, AP4135-03_M, AP4135-02 → tylko AP4135 (czysty SKU)
+     * Stage 2 później utworzy warianty dla głównych produktów
      */
     function group_anda_size_variants($products, $offset, $end_offset)
     {
@@ -1581,101 +1963,154 @@ $start_time = microtime(true);
             return $products;
         }
 
-        addLog("👕 ANDA: Rozpoczynam grupowanie produktów z rozmiarami...", "info");
+        addLog("🔥 ANDA: Rozpoczynam filtrowanie na czyste SKU dla Stage 1...", "info");
 
         $grouped_products = [];
         $processed_base_skus = [];
-        $size_pattern = '/_([SMLX]+|XS|XXS|XXXS|XXXXS|\d+)$/'; // Pattern dla rozmiarów
+        $variant_images = []; // Zdjęcia wariantów do dodania do głównych produktów
+    
+        // Rozszerzone patterny dla ANDA
+        $color_pattern = '/-(\d{2})$/'; // Kolory: -01, -02, -03, etc.
+        $size_pattern = '/_(S|M|L|XL|XXL|XXXL|XS|XXS|XXXS|XXXXS|\d+[Gg][Bb]?)$/'; // Rozmiary: _S, _M, _8GB, _16gb, etc.
+        $combined_pattern = '/-(\d{2})_(S|M|L|XL|XXL|XXXL|XS|XXS|XXXS|XXXXS|\d+[Gg][Bb]?)$/'; // Kombinowane: -01_S, -02_16GB
     
         for ($i = 0; $i < count($products); $i++) {
             $product = $products[$i];
             $sku = trim((string) $product->sku);
+            $is_variant = false;
+            $base_sku = '';
 
-            // Sprawdź czy SKU ma rozmiar na końcu
-            if (preg_match($size_pattern, $sku, $matches)) {
-                $base_sku = preg_replace($size_pattern, '', $sku); // Usuń rozmiar z SKU
-                $size = $matches[1]; // Wyciągnij rozmiar
-    
-                addLog("   👕 Znaleziono rozmiar: $sku → base: $base_sku, rozmiar: $size", "info");
+            // Sprawdź różne typy wariantów
+            if (preg_match($combined_pattern, $sku, $matches)) {
+                // Kolor + rozmiar: AP4135-02_S
+                $base_sku = preg_replace($combined_pattern, '', $sku);
+                $color_code = $matches[1];
+                $size = $matches[2];
+                $is_variant = true;
+                addLog("   🎨👕 ANDA: Wariant kolor+rozmiar: $sku → base: $base_sku (kolor: $color_code, rozmiar: $size)", "info");
+            } elseif (preg_match($color_pattern, $sku, $matches)) {
+                // Tylko kolor: AP4135-02
+                $base_sku = preg_replace($color_pattern, '', $sku);
+                $color_code = $matches[1];
+                $is_variant = true;
+                addLog("   🎨 ANDA: Wariant koloru: $sku → base: $base_sku (kolor: $color_code)", "info");
+            } elseif (preg_match($size_pattern, $sku, $matches)) {
+                // Tylko rozmiar: AP4135_S
+                $base_sku = preg_replace($size_pattern, '', $sku);
+                $size = $matches[1];
+                $is_variant = true;
+                addLog("   👕 ANDA: Wariant rozmiaru: $sku → base: $base_sku (rozmiar: $size)", "info");
+            }
 
-                // Sprawdź czy już przetwarzaliśmy ten base SKU
+            if ($is_variant) {
+                // To jest wariant - zbierz zdjęcia i usuń istniejący produkt
+                if (isset($product->images) && $product->images->image) {
+                    if (!isset($variant_images[$base_sku])) {
+                        $variant_images[$base_sku] = [];
+                    }
+
+                    // Dodaj zdjęcia wariantu do galerii głównego produktu
+                    foreach ($product->images->image as $image) {
+                        $image_url = trim((string) $image);
+                        if (!empty($image_url) && !in_array($image_url, $variant_images[$base_sku])) {
+                            $variant_images[$base_sku][] = $image_url;
+                        }
+                    }
+                    addLog("     📷 Zebrano zdjęcia wariantu dla base: $base_sku", "info");
+                }
+
+                // Usuń istniejący produkt wariantu (jeśli istnieje)
+                $existing_variant_id = wc_get_product_id_by_sku($sku);
+                if ($existing_variant_id) {
+                    wp_delete_post($existing_variant_id, true);
+                    addLog("   🗑️ ANDA: Usunięto wariant: $sku", "info");
+                }
+
+                // Sprawdź czy mamy już główny produkt dla tego base SKU
                 if (!isset($processed_base_skus[$base_sku])) {
-                    // Znajdź wszystkie warianty tego produktu
-                    $variants = [];
+                    // Znajdź główny produkt z czystym SKU
+                    $main_product = null;
                     for ($j = 0; $j < count($products); $j++) {
                         $check_sku = trim((string) $products[$j]->sku);
-                        if (preg_match('/^' . preg_quote($base_sku, '/') . '_([SMLX]+|XS|XXS|XXXS|XXXXS|\d+)$/', $check_sku, $variant_matches)) {
-                            $variant_size = $variant_matches[1];
-                            $variants[$variant_size] = $products[$j];
-                            addLog("     ➕ Dodano wariant: $check_sku (rozmiar: $variant_size)", "info");
+                        if ($check_sku === $base_sku) {
+                            $main_product = $products[$j];
+                            break;
                         }
                     }
 
-                    if (count($variants) > 1) {
-                        // Stwórz główny produkt z pierwszego wariantu
-                        $main_product = clone $variants[array_key_first($variants)];
-                        $main_product->sku = $base_sku; // Ustaw base SKU
-                        $main_product->addChild('type', 'variable'); // Oznacz jako zmienny
-    
-                        // Dodaj atrybut rozmiaru
-                        if (!isset($main_product->attributes)) {
-                            $main_product->addChild('attributes', '');
-                        }
-
-                        $size_attribute = $main_product->attributes->addChild('attribute');
-                        $size_attribute->addChild('n', 'Rozmiar');
-                        $size_attribute->addChild('value', implode(' | ', array_keys($variants)));
-                        $size_attribute->addChild('visible', '1');
-                        $size_attribute->addChild('variation', 'yes');
-
-                        // Dodaj wszystkie warianty jako warianty produktu
-                        if (!isset($main_product->variations)) {
-                            $main_product->addChild('variations', '');
-                        }
-
-                        foreach ($variants as $size => $variant) {
-                            $variation_node = $main_product->variations->addChild('variation');
-                            $variation_node->addChild('sku', trim((string) $variant->sku));
-                            $variation_node->addChild('regular_price', trim((string) $variant->regular_price));
-                            $variation_node->addChild('stock_quantity', trim((string) $variant->stock_quantity));
-
-                            $var_attributes = $variation_node->addChild('attributes');
-                            $var_attr = $var_attributes->addChild('attribute');
-                            $var_attr->addChild('n', 'Rozmiar');
-                            $var_attr->addChild('value', $size);
-                        }
-
-                        $grouped_products[] = $main_product;
+                    if ($main_product) {
+                        // Oznacz jako przetworzony i dodaj do wyników
                         $processed_base_skus[$base_sku] = true;
-
-                        addLog("   ✅ Utworzono główny produkt: $base_sku z " . count($variants) . " wariantami", "success");
-
-                        // Usuń produkty o poszczególnych rozmiarach z listy importu
-                        foreach ($variants as $variant) {
-                            $variant_sku = trim((string) $variant->sku);
-                            $existing_product_id = wc_get_product_id_by_sku($variant_sku);
-                            if ($existing_product_id) {
-                                wp_delete_post($existing_product_id, true);
-                                addLog("   🗑️ Usunięto duplikat rozmiarowy: $variant_sku", "info");
-                            }
-                        }
+                        $grouped_products[] = $main_product;
+                        addLog("   ✅ ANDA: Znaleziono główny produkt: $base_sku", "success");
                     } else {
-                        // Tylko jeden rozmiar - dodaj jako zwykły produkt
-                        $grouped_products[] = $product;
+                        // Stwórz główny produkt z pierwszego wariantu ale z czystym SKU
+                        $main_product = clone $product;
+                        $main_product->sku = $base_sku;
+
+                        // Usuń niepotrzebne elementy wariantu
+                        if (isset($main_product->type)) {
+                            unset($main_product->type);
+                        }
+
+                        $processed_base_skus[$base_sku] = true;
+                        $grouped_products[] = $main_product;
+                        addLog("   ✅ ANDA: Utworzono główny produkt z wariantu: $base_sku", "success");
                     }
                 }
             } else {
-                // Nie ma rozmiaru w SKU - dodaj normalnie
-                $grouped_products[] = $product;
+                // To jest czysty SKU lub produkt bez wariantów
+                if (!isset($processed_base_skus[$sku])) {
+                    $grouped_products[] = $product;
+                    $processed_base_skus[$sku] = true;
+                    addLog("   ✅ ANDA: Produkt z czystym SKU: $sku", "success");
+                }
             }
         }
 
-        addLog("📦 ANDA: Grupowanie zakończone. Produktów: " . count($products) . " → " . count($grouped_products), "success");
+        // Dodaj zebrane zdjęcia wariantów do głównych produktów
+        foreach ($grouped_products as $main_product) {
+            $main_sku = trim((string) $main_product->sku);
+
+            if (isset($variant_images[$main_sku]) && !empty($variant_images[$main_sku])) {
+                // Dodaj zdjęcia wariantów do galerii głównego produktu
+                if (!isset($main_product->images)) {
+                    $main_product->addChild('images', '');
+                }
+
+                // Dodaj istniejące zdjęcia do listy (żeby nie duplikować)
+                $existing_images = [];
+                if (isset($main_product->images->image)) {
+                    foreach ($main_product->images->image as $existing_img) {
+                        $existing_images[] = trim((string) $existing_img);
+                    }
+                }
+
+                // Dodaj nowe zdjęcia z wariantów
+                $added_count = 0;
+                foreach ($variant_images[$main_sku] as $variant_image) {
+                    if (!in_array($variant_image, $existing_images)) {
+                        $main_product->images->addChild('image', $variant_image);
+                        $added_count++;
+                    }
+                }
+
+                if ($added_count > 0) {
+                    addLog("   📷 ANDA: Dodano $added_count zdjęć wariantów do produktu: $main_sku", "success");
+                }
+            }
+        }
+
+        addLog("🔥 ANDA: Filtrowanie zakończone. Produktów z wariantami: " . count($products) . " → Głównych produktów: " . count($grouped_products), "success");
+        addLog("🔥 ANDA: Stage 2 będzie tworzyć warianty i atrybuty dla głównych produktów", "info");
+
         return $grouped_products;
     }
 
     ?>
     </div>
 </body>
+
+</html>
 
 </html>
