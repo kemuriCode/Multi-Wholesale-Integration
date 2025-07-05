@@ -96,6 +96,28 @@ class MHI_ANDA_WC_XML_Generator
     private $flat_categories = [];
 
     /**
+     * Pogrupowane produkty według bazowego SKU.
+     * Struktura: [base_sku => [main_product, [variants...]]]
+     *
+     * @var array
+     */
+    private $grouped_products = [];
+
+    /**
+     * Główne produkty (bez wariantów).
+     *
+     * @var array
+     */
+    private $main_products = [];
+
+    /**
+     * Produkty wariantowe (z wariantami).
+     *
+     * @var array
+     */
+    private $variable_products = [];
+
+    /**
      * Dostępne technologie druku.
      *
      * @var array
@@ -248,14 +270,15 @@ class MHI_ANDA_WC_XML_Generator
     }
 
     /**
-     * Generuje KOMPLETNY plik XML ANDA dla WooCommerce z wszystkimi danymi.
+     * Generuje KOMPLETNY plik XML ANDA dla WooCommerce z obsługą wariantów.
      *
+     * @param int $limit Limit produktów do wygenerowania (0 = wszystkie)
      * @return array Status operacji
      */
-    public function generate_all_xml_files()
+    public function generate_all_xml_files($limit = 0)
     {
         try {
-            error_log('MHI ANDA: Rozpoczynam KOMPLETNE generowanie pliku XML z wszystkimi danymi');
+            error_log('MHI ANDA: Rozpoczynam KOMPLETNE generowanie pliku XML z obsługą wariantów');
 
             $this->log_memory_usage('Początek generowania');
 
@@ -270,7 +293,7 @@ class MHI_ANDA_WC_XML_Generator
             }
 
             // Wczytaj dane z plików XML
-            $this->load_all_data();
+            $this->load_all_data($limit);
             $this->log_memory_usage('Po wczytaniu danych');
 
             // Generuj pliki ze wszystkimi danymi
@@ -286,11 +309,18 @@ class MHI_ANDA_WC_XML_Generator
 
             return [
                 'success' => true,
-                'message' => 'Wszystkie pliki XML zostały wygenerowane z kompletnymi danymi ANDA',
+                'message' => 'Wszystkie pliki XML zostały wygenerowane z obsługą wariantów ANDA',
                 'results' => [
                     'products' => $products_result,
                     'categories' => $categories_result,
                     'printing_prices' => $printing_result
+                ],
+                'stats' => [
+                    'main_products' => count($this->main_products),
+                    'variable_products' => count($this->variable_products),
+                    'total_variants' => array_sum(array_map(function ($group) {
+                        return count($group['variants']);
+                    }, $this->variable_products))
                 ]
             ];
 
@@ -320,17 +350,19 @@ class MHI_ANDA_WC_XML_Generator
 
     /**
      * Wczytuje wszystkie dane z plików XML ANDA.
+     *
+     * @param int $limit Limit produktów do wczytania (0 = wszystkie)
      */
-    private function load_all_data()
+    private function load_all_data($limit = 0)
     {
         error_log('MHI ANDA: Wczytuję rozszerzone dane z plików XML');
 
         // Zwiększ limit pamięci dla wszystkich produktów
         ini_set('memory_limit', '1024M');
 
-        // Wczytaj wszystkie produkty (bez ograniczeń)
-        $this->products_data = $this->load_xml_file('products.xml', 'product', 0);
-        error_log('MHI ANDA: Wczytano ' . count($this->products_data) . ' produktów');
+        // Wczytaj produkty (z możliwością ograniczenia)
+        $this->products_data = $this->load_xml_file('products.xml', 'product', $limit);
+        error_log('MHI ANDA: Wczytano ' . count($this->products_data) . ' produktów' . ($limit > 0 ? " (limit: $limit)" : ''));
 
         // Wczytaj wszystkie ceny
         $this->prices_data = $this->load_xml_file('prices.xml', 'price', 0);
@@ -354,6 +386,129 @@ class MHI_ANDA_WC_XML_Generator
 
         // Stwórz płaską strukturę kategorii
         $this->build_flat_categories();
+
+        // Analizuj i pogrupuj produkty według SKU
+        $this->analyze_and_group_products();
+    }
+
+    /**
+     * Analizuje produkty i grupuje je według bazowego SKU.
+     * Identyfikuje główne produkty i warianty.
+     */
+    private function analyze_and_group_products()
+    {
+        error_log('MHI ANDA: Rozpoczynam analizę i grupowanie produktów według SKU');
+
+        $this->grouped_products = [];
+        $this->main_products = [];
+        $this->variable_products = [];
+
+        // Pogrupuj produkty według bazowego SKU
+        foreach ($this->products_data as $item_number => $product) {
+            $base_sku = $this->extract_base_sku($item_number);
+
+            if (!isset($this->grouped_products[$base_sku])) {
+                $this->grouped_products[$base_sku] = [
+                    'main_product' => null,
+                    'variants' => []
+                ];
+            }
+
+            // Sprawdź czy to główny produkt czy wariant
+            if ($this->is_main_product($item_number, $base_sku)) {
+                $this->grouped_products[$base_sku]['main_product'] = [
+                    'item_number' => $item_number,
+                    'data' => $product
+                ];
+            } else {
+                $this->grouped_products[$base_sku]['variants'][] = [
+                    'item_number' => $item_number,
+                    'data' => $product,
+                    'variant_code' => $this->extract_variant_code($item_number, $base_sku)
+                ];
+            }
+        }
+
+        // Podziel na główne produkty i produkty wariantowe
+        foreach ($this->grouped_products as $base_sku => $group) {
+            if (empty($group['variants'])) {
+                // Produkt bez wariantów - dodaj do głównych produktów
+                if ($group['main_product']) {
+                    $this->main_products[$base_sku] = $group['main_product'];
+                }
+            } else {
+                // Produkt z wariantami - dodaj do produktów wariantowych
+                $this->variable_products[$base_sku] = $group;
+            }
+        }
+
+        error_log('MHI ANDA: Znaleziono ' . count($this->main_products) . ' głównych produktów (bez wariantów)');
+        error_log('MHI ANDA: Znaleziono ' . count($this->variable_products) . ' produktów wariantowych');
+
+        // Loguj przykłady dla debugowania
+        $this->log_grouping_examples();
+    }
+
+    /**
+     * Wyciąga bazowy SKU z pełnego numeru produktu.
+     * Usuwa końcówki po `-` lub `_`.
+     *
+     * @param string $item_number
+     * @return string
+     */
+    private function extract_base_sku($item_number)
+    {
+        // Usuń końcówki po `-` lub `_`
+        $base_sku = preg_split('/[-_]/', $item_number)[0];
+        return $base_sku;
+    }
+
+    /**
+     * Sprawdza czy produkt jest głównym produktem (bez wariantów).
+     *
+     * @param string $item_number
+     * @param string $base_sku
+     * @return bool
+     */
+    private function is_main_product($item_number, $base_sku)
+    {
+        // Główny produkt to ten, który ma dokładnie taki sam SKU jak bazowy
+        return $item_number === $base_sku;
+    }
+
+    /**
+     * Wyciąga kod wariantu z pełnego numeru produktu.
+     *
+     * @param string $item_number
+     * @param string $base_sku
+     * @return string
+     */
+    private function extract_variant_code($item_number, $base_sku)
+    {
+        // Usuń bazowy SKU i separator, zostaw kod wariantu
+        $variant_code = str_replace($base_sku, '', $item_number);
+        $variant_code = ltrim($variant_code, '-_'); // Usuń separator z początku
+        return $variant_code;
+    }
+
+    /**
+     * Loguje przykłady grupowania dla debugowania.
+     */
+    private function log_grouping_examples()
+    {
+        $count = 0;
+        foreach ($this->variable_products as $base_sku => $group) {
+            if ($count >= 5)
+                break; // Tylko 5 przykładów
+
+            $main_sku = $group['main_product'] ? $group['main_product']['item_number'] : 'BRAK';
+            $variant_skus = array_map(function ($v) {
+                return $v['item_number'];
+            }, $group['variants']);
+
+            error_log("MHI ANDA GRUPA: $base_sku - Główny: $main_sku, Warianty: " . implode(', ', $variant_skus));
+            $count++;
+        }
     }
 
     /**
@@ -604,8 +759,8 @@ class MHI_ANDA_WC_XML_Generator
                         if ($element_name === 'product' || $element_name === 'price' || $element_name === 'record') {
                             $key = (string) $xml->itemNumber;
                             if (!empty($key)) {
-                                // Dla record (inventories) możemy mieć multiple entries per itemNumber
-                                if ($element_name === 'record') {
+                                // Dla record (inventories) i price (ceny) możemy mieć multiple entries per itemNumber
+                                if ($element_name === 'record' || $element_name === 'price') {
                                     if (!isset($data[$key])) {
                                         $data[$key] = [];
                                     }
@@ -774,13 +929,13 @@ class MHI_ANDA_WC_XML_Generator
     }
 
     /**
-     * Generuje plik XML z produktami dla WooCommerce w standardowej strukturze.
+     * Generuje plik XML z produktami dla WooCommerce z obsługą wariantów.
      *
      * @return array Status operacji
      */
     private function generate_products_xml()
     {
-        error_log("MHI ANDA: Generuję plik XML z produktami ANDA w standardowej strukturze");
+        error_log("MHI ANDA: Generuję plik XML z produktami ANDA z obsługą wariantów");
 
         $xml = new DOMDocument('1.0', 'UTF-8');
         $xml->formatOutput = true;
@@ -790,23 +945,46 @@ class MHI_ANDA_WC_XML_Generator
         $xml->appendChild($root);
 
         $count = 0;
-        $batch_size = 50; // Przetwarzaj po 50 produktów naraz
+        $batch_size = 50;
         $processed = 0;
 
-        foreach ($this->products_data as $item_number => $product) {
-            $product_element = $this->create_standard_product_element($xml, $product, $item_number);
+        // Najpierw dodaj główne produkty (bez wariantów)
+        foreach ($this->main_products as $base_sku => $main_product) {
+            $product_element = $this->create_standard_product_element($xml, $main_product['data'], $main_product['item_number']);
             if ($product_element) {
                 $root->appendChild($product_element);
                 $count++;
             }
 
             $processed++;
-
-            // Zwolnij pamięć co batch_size elementów
             if ($processed % $batch_size === 0) {
-                unset($product, $product_element);
                 gc_collect_cycles();
-                error_log("MHI ANDA: Przetworzono $processed produktów...");
+                error_log("MHI ANDA: Przetworzono $processed głównych produktów...");
+            }
+        }
+
+        // Następnie dodaj produkty wariantowe
+        foreach ($this->variable_products as $base_sku => $group) {
+            // Dodaj główny produkt wariantowy
+            $main_product_element = $this->create_variable_product_element($xml, $group, $base_sku);
+            if ($main_product_element) {
+                $root->appendChild($main_product_element);
+                $count++;
+            }
+
+            // Dodaj wszystkie warianty
+            foreach ($group['variants'] as $variant) {
+                $variant_element = $this->create_product_variation_element($xml, $variant, $base_sku);
+                if ($variant_element) {
+                    $root->appendChild($variant_element);
+                    $count++;
+                }
+            }
+
+            $processed++;
+            if ($processed % $batch_size === 0) {
+                gc_collect_cycles();
+                error_log("MHI ANDA: Przetworzono $processed produktów wariantowych...");
             }
         }
 
@@ -815,7 +993,7 @@ class MHI_ANDA_WC_XML_Generator
         $file_path = $this->target_dir . '/' . $filename;
 
         if ($xml->save($file_path)) {
-            error_log("MHI ANDA: Wygenerowano $count produktów w pliku $filename");
+            error_log("MHI ANDA: Wygenerowano $count produktów (z wariantami) w pliku $filename");
 
             // Zwolnij pamięć po zapisaniu
             unset($xml, $root);
@@ -1840,8 +2018,9 @@ class MHI_ANDA_WC_XML_Generator
         return '';
     }
 
-    /**
+        /**
      * Pobiera cenę produktu z nowej struktury ANDA (prices.xml).
+     * POPRAWIONE: Obsługuje tablicę cen dla tego samego itemNumber
      * 
      * @param string $item_number
      * @return array
@@ -1850,24 +2029,56 @@ class MHI_ANDA_WC_XML_Generator
     {
         $price_data = [];
 
-        // Przeszukaj wszystkie ceny po itemNumber
-        if (!empty($this->prices_data)) {
-            foreach ($this->prices_data as $price_item) {
-                if (isset($price_item['itemNumber']) && $price_item['itemNumber'] === $item_number) {
-                    // ANDA struktura: <price><itemNumber>...</itemNumber><amount>...</amount><type>listPrice/discountPrice</type></price>
-                    $type = $price_item['type'] ?? '';
-                    $amount = $price_item['amount'] ?? '0';
-                    $currency = $price_item['currency'] ?? 'PLN';
+        // Przeszukaj wszystkie ceny po itemNumber - teraz to tablica!
+        if (!empty($this->prices_data[$item_number])) {
+            $price_items = $this->prices_data[$item_number];
+            
+            // Jeśli to nie tablica, zamień na tablicę
+            if (!is_array($price_items) || isset($price_items['type'])) {
+                $price_items = [$price_items];
+            }
+            
+            foreach ($price_items as $price_item) {
+                $type = $price_item['type'] ?? '';
+                $amount = $price_item['amount'] ?? '0';
+                $currency = $price_item['currency'] ?? 'PLN';
 
-                    if ($type === 'listPrice') {
-                        $price_data['listPrice'] = $amount;
-                        $price_data['regular_price'] = $amount;
-                        $price_data['currency'] = $currency;
-                        error_log("MHI ANDA: Znaleziono listPrice dla $item_number: $amount $currency");
-                    } elseif ($type === 'discountPrice') {
-                        $price_data['discountPrice'] = $amount;
-                        $price_data['sale_price'] = $amount;
-                        error_log("MHI ANDA: Znaleziono discountPrice dla $item_number: $amount $currency");
+                if ($type === 'listPrice') {
+                    $price_data['listPrice'] = $amount;
+                    $price_data['regular_price'] = $amount; // CENA KATALOGOWA!
+                    $price_data['currency'] = $currency;
+                    error_log("MHI ANDA PRICE: ✅ listPrice dla $item_number: $amount $currency");
+                } elseif ($type === 'discountPrice') {
+                    $price_data['discountPrice'] = $amount;
+                    $price_data['sale_price'] = $amount;
+                    error_log("MHI ANDA PRICE: 🔥 discountPrice dla $item_number: $amount $currency");
+                }
+            }
+        } else {
+            // Fallback - przeszukaj wszystkie ceny (stara metoda)
+            if (!empty($this->prices_data)) {
+                foreach ($this->prices_data as $key => $price_entries) {
+                    if (!is_array($price_entries)) {
+                        $price_entries = [$price_entries];
+                    }
+                    
+                    foreach ($price_entries as $price_item) {
+                        if (isset($price_item['itemNumber']) && $price_item['itemNumber'] === $item_number) {
+                            $type = $price_item['type'] ?? '';
+                            $amount = $price_item['amount'] ?? '0';
+                            $currency = $price_item['currency'] ?? 'PLN';
+
+                            if ($type === 'listPrice') {
+                                $price_data['listPrice'] = $amount;
+                                $price_data['regular_price'] = $amount; // CENA KATALOGOWA!
+                                $price_data['currency'] = $currency;
+                                error_log("MHI ANDA PRICE: ✅ (fallback) listPrice dla $item_number: $amount $currency");
+                            } elseif ($type === 'discountPrice') {
+                                $price_data['discountPrice'] = $amount;
+                                $price_data['sale_price'] = $amount;
+                                error_log("MHI ANDA PRICE: 🔥 (fallback) discountPrice dla $item_number: $amount $currency");
+                            }
+                        }
                     }
                 }
             }
@@ -1875,7 +2086,9 @@ class MHI_ANDA_WC_XML_Generator
 
         // Loguj brak ceny dla debugowania
         if (empty($price_data)) {
-            error_log("MHI ANDA: Brak ceny dla produktu: $item_number");
+            error_log("MHI ANDA PRICE: ❌ Brak ceny dla produktu: $item_number");
+        } else {
+            error_log("MHI ANDA PRICE: 📊 Finalne ceny dla $item_number: " . print_r($price_data, true));
         }
 
         return $price_data;
@@ -2716,5 +2929,453 @@ class MHI_ANDA_WC_XML_Generator
         $this->add_xml_element($xml, $meta_element, 'value', $value);
 
         $meta_section->appendChild($meta_element);
+    }
+
+    /**
+     * Tworzy element głównego produktu wariantowego.
+     *
+     * @param DOMDocument $xml
+     * @param array $group Grupa produktów (main_product + variants)
+     * @param string $base_sku Bazowy SKU
+     * @return DOMElement|null
+     */
+    private function create_variable_product_element($xml, $group, $base_sku)
+    {
+        try {
+            $product_element = $xml->createElement('product');
+
+            // Użyj danych głównego produktu lub pierwszego wariantu jako base
+            $base_product_data = $group['main_product'] ? $group['main_product']['data'] : $group['variants'][0]['data'];
+            $base_item_number = $group['main_product'] ? $group['main_product']['item_number'] : $base_sku;
+
+            // SKU - użyj bazowego SKU
+            $this->add_xml_element($xml, $product_element, 'sku', $base_sku);
+
+            // Typ produktu - wariantowy
+            $this->add_xml_element($xml, $product_element, 'type', 'variable');
+
+            // Nazwa produktu
+            $name = $this->build_variable_product_name($base_product_data, $base_sku);
+            $this->add_xml_element($xml, $product_element, 'name', $name);
+
+            // Opis produktu
+            $description = $this->build_complete_description($base_product_data);
+            $this->add_xml_element($xml, $product_element, 'description', $description);
+
+            // Kategorie z bazowego produktu
+            $this->add_complete_categories($xml, $product_element, $base_product_data);
+
+            // Atrybuty wariantowe - wyciągnij z wszystkich wariantów
+            $this->add_variable_product_attributes($xml, $product_element, $group);
+
+            // Technologie druku
+            $this->add_printing_technologies_as_attributes($xml, $product_element, $base_product_data);
+
+            // Meta data
+            $this->add_complete_meta_data($xml, $product_element, $base_product_data, $base_item_number);
+
+            // Zdjęcia z bazowego produktu
+            $this->add_complete_images($xml, $product_element, $base_product_data);
+
+            // Domyślne statusy
+            $this->add_xml_element($xml, $product_element, 'status', 'publish');
+            $this->add_xml_element($xml, $product_element, 'manage_stock', 'yes');
+
+            return $product_element;
+
+        } catch (Exception $e) {
+            error_log("MHI ANDA: Błąd tworzenia elementu produktu wariantowego $base_sku: " . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Tworzy element wariantu produktu.
+     *
+     * @param DOMDocument $xml
+     * @param array $variant Dane wariantu
+     * @param string $base_sku Bazowy SKU
+     * @return DOMElement|null
+     */
+    private function create_product_variation_element($xml, $variant, $base_sku)
+    {
+        try {
+            $variation_element = $xml->createElement('product');
+
+            $variant_data = $variant['data'];
+            $variant_item_number = $variant['item_number'];
+            $variant_code = $variant['variant_code'];
+
+            // SKU wariantu
+            $this->add_xml_element($xml, $variation_element, 'sku', $variant_item_number);
+
+            // Typ produktu - wariant
+            $this->add_xml_element($xml, $variation_element, 'type', 'variation');
+
+            // Referencja do głównego produktu
+            $this->add_xml_element($xml, $variation_element, 'parent_sku', $base_sku);
+
+            // Nazwa wariantu
+            $variant_name = $this->build_variant_product_name($variant_data, $variant_item_number, $variant_code);
+            $this->add_xml_element($xml, $variation_element, 'name', $variant_name);
+
+            // Opis wariantu
+            $description = $this->build_complete_description($variant_data);
+            $this->add_xml_element($xml, $variation_element, 'description', $description);
+
+            // Ceny wariantu
+            $price_data = $this->get_product_price($variant_item_number);
+            if (!empty($price_data)) {
+                $this->add_pricing_data($xml, $variation_element, $price_data);
+            }
+
+            // Stan magazynowy wariantu
+            $stock = $this->get_product_stock($variant_item_number);
+            $this->add_xml_element($xml, $variation_element, 'stock_quantity', $stock);
+            $stock_status = $stock > 0 ? 'instock' : 'outofstock';
+            $this->add_xml_element($xml, $variation_element, 'stock_status', $stock_status);
+
+            // Atrybuty wariantu - różnice od głównego produktu
+            $this->add_variation_attributes($xml, $variation_element, $variant_data, $variant_code);
+
+            // Meta data wariantu
+            $this->add_complete_meta_data($xml, $variation_element, $variant_data, $variant_item_number);
+
+            // Zdjęcia wariantu
+            $this->add_complete_images($xml, $variation_element, $variant_data);
+
+            // Status
+            $this->add_xml_element($xml, $variation_element, 'status', 'publish');
+
+            return $variation_element;
+
+        } catch (Exception $e) {
+            error_log("MHI ANDA: Błąd tworzenia elementu wariantu {$variant['item_number']}: " . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Buduje nazwę produktu wariantowego.
+     *
+     * @param array $product_data
+     * @param string $base_sku
+     * @return string
+     */
+    private function build_variable_product_name($product_data, $base_sku)
+    {
+        $name_parts = [];
+
+        // Dodaj designName jeśli istnieje
+        if (!empty($product_data['designName'])) {
+            $name_parts[] = $product_data['designName'];
+        }
+
+        // Dodaj główną nazwę produktu
+        if (!empty($product_data['n'])) {
+            $name_parts[] = $product_data['n'];
+        }
+
+        // Jeśli brak nazw, użyj kodu produktu
+        if (empty($name_parts)) {
+            $name_parts[] = 'Produkt ' . $base_sku;
+        }
+
+        return implode(' ', $name_parts);
+    }
+
+    /**
+     * Buduje nazwę wariantu produktu.
+     *
+     * @param array $variant_data
+     * @param string $variant_item_number
+     * @param string $variant_code
+     * @return string
+     */
+    private function build_variant_product_name($variant_data, $variant_item_number, $variant_code)
+    {
+        $name_parts = [];
+
+        // Dodaj designName jeśli istnieje
+        if (!empty($variant_data['designName'])) {
+            $name_parts[] = $variant_data['designName'];
+        }
+
+        // Dodaj główną nazwę produktu
+        if (!empty($variant_data['n'])) {
+            $name_parts[] = $variant_data['n'];
+        }
+
+        // Jeśli brak nazw, użyj kodu produktu
+        if (empty($name_parts)) {
+            $name_parts[] = 'Produkt ' . $variant_item_number;
+        }
+
+        // Dodaj kod wariantu
+        if (!empty($variant_code)) {
+            $name_parts[] = "($variant_code)";
+        }
+
+        return implode(' ', $name_parts);
+    }
+
+    /**
+     * Dodaje atrybuty produktu wariantowego (wszystkie możliwe wartości).
+     *
+     * @param DOMDocument $xml
+     * @param DOMElement $product_element
+     * @param array $group Grupa produktów
+     */
+    private function add_variable_product_attributes($xml, $product_element, $group)
+    {
+        $attributes_element = $xml->createElement('attributes');
+        $product_element->appendChild($attributes_element);
+
+        // Zbierz wszystkie atrybuty ze wszystkich wariantów
+        $all_attributes = $this->collect_variation_attributes($group);
+
+        // Dodaj każdy atrybut z wszystkimi możliwymi wartościami
+        foreach ($all_attributes as $attr_name => $attr_values) {
+            $this->add_variable_attribute($xml, $attributes_element, $attr_name, $attr_values, true);
+        }
+
+        // Dodaj standardowe atrybuty (jeśli istnieją)
+        $base_product_data = $group['main_product'] ? $group['main_product']['data'] : $group['variants'][0]['data'];
+        $this->add_standard_non_variable_attributes($xml, $attributes_element, $base_product_data);
+    }
+
+    /**
+     * Dodaje atrybuty konkretnego wariantu.
+     *
+     * @param DOMDocument $xml
+     * @param DOMElement $variation_element
+     * @param array $variant_data
+     * @param string $variant_code
+     */
+    private function add_variation_attributes($xml, $variation_element, $variant_data, $variant_code)
+    {
+        $attributes_element = $xml->createElement('attributes');
+        $variation_element->appendChild($attributes_element);
+
+        // Kod wariantu jako atrybut
+        $this->add_variable_attribute($xml, $attributes_element, 'Kod wariantu', [$variant_code], false);
+
+        // Kolor (jeśli różni się)
+        if (!empty($variant_data['primaryColor'])) {
+            $this->add_variable_attribute($xml, $attributes_element, 'Kolor', [$variant_data['primaryColor']], false);
+        }
+
+        // Rozmiar (jeśli jest w kodzie wariantu)
+        $size = $this->extract_size_from_variant_code($variant_code);
+        if ($size) {
+            $this->add_variable_attribute($xml, $attributes_element, 'Rozmiar', [$size], false);
+        }
+
+        // Inne atrybuty z danych produktu
+        $this->add_variant_specific_attributes($xml, $attributes_element, $variant_data);
+    }
+
+    /**
+     * Zbiera atrybuty wariantowe ze wszystkich wariantów.
+     *
+     * @param array $group
+     * @return array
+     */
+    private function collect_variation_attributes($group)
+    {
+        $attributes = [];
+
+        // Zbierz kody wariantów
+        $variant_codes = [];
+        foreach ($group['variants'] as $variant) {
+            if (!empty($variant['variant_code'])) {
+                $variant_codes[] = $variant['variant_code'];
+            }
+        }
+        if (!empty($variant_codes)) {
+            $attributes['Kod wariantu'] = array_unique($variant_codes);
+        }
+
+        // Zbierz kolory
+        $colors = [];
+        foreach ($group['variants'] as $variant) {
+            if (!empty($variant['data']['primaryColor'])) {
+                $colors[] = $variant['data']['primaryColor'];
+            }
+        }
+        if (!empty($colors)) {
+            $attributes['Kolor'] = array_unique($colors);
+        }
+
+        // Zbierz rozmiary z kodów wariantów
+        $sizes = [];
+        foreach ($group['variants'] as $variant) {
+            $size = $this->extract_size_from_variant_code($variant['variant_code']);
+            if ($size) {
+                $sizes[] = $size;
+            }
+        }
+        if (!empty($sizes)) {
+            $attributes['Rozmiar'] = array_unique($sizes);
+        }
+
+        return $attributes;
+    }
+
+    /**
+     * Wyciąga rozmiar z kodu wariantu.
+     *
+     * @param string $variant_code
+     * @return string|null
+     */
+    private function extract_size_from_variant_code($variant_code)
+    {
+        // Sprawdź popularne kody rozmiarów
+        $size_patterns = [
+            '/(\d+T)$/' => '$1', // np. 03T
+            '/([XS|S|M|L|XL|XXL])$/' => '$1', // standardowe rozmiary
+            '/(\d+)$/' => '$1', // liczby
+        ];
+
+        foreach ($size_patterns as $pattern => $replacement) {
+            if (preg_match($pattern, $variant_code, $matches)) {
+                return $matches[1];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Dodaje atrybut wariantowy.
+     *
+     * @param DOMDocument $xml
+     * @param DOMElement $attributes_element
+     * @param string $name
+     * @param array $values
+     * @param bool $used_for_variations
+     */
+    private function add_variable_attribute($xml, $attributes_element, $name, $values, $used_for_variations)
+    {
+        $attribute_element = $xml->createElement('attribute');
+        $attributes_element->appendChild($attribute_element);
+
+        $this->add_xml_element($xml, $attribute_element, 'name', $name);
+        $this->add_xml_element($xml, $attribute_element, 'value', implode(' | ', $values));
+        $this->add_xml_element($xml, $attribute_element, 'visible', '1');
+        $this->add_xml_element($xml, $attribute_element, 'variation', $used_for_variations ? '1' : '0');
+    }
+
+    /**
+     * Dodaje standardowe atrybuty niewariantowe.
+     *
+     * @param DOMDocument $xml
+     * @param DOMElement $attributes_element
+     * @param array $product_data
+     */
+    private function add_standard_non_variable_attributes($xml, $attributes_element, $product_data)
+    {
+        // Materiał
+        $material = $this->detect_material($product_data);
+        if (!empty($material)) {
+            $this->add_variable_attribute($xml, $attributes_element, 'Materiał', [$material], false);
+        }
+
+        // Wymiary
+        if (!empty($product_data['width']) && !empty($product_data['height']) && !empty($product_data['depth'])) {
+            $dimensions = $product_data['width'] . ' x ' . $product_data['height'] . ' x ' . $product_data['depth'] . ' cm';
+            $this->add_variable_attribute($xml, $attributes_element, 'Wymiary', [$dimensions], false);
+        }
+
+        // Waga
+        if (!empty($product_data['individualProductWeightGram'])) {
+            $this->add_variable_attribute($xml, $attributes_element, 'Waga', [$product_data['individualProductWeightGram'] . ' g'], false);
+        }
+    }
+
+    /**
+     * Dodaje atrybuty specyficzne dla wariantu.
+     *
+     * @param DOMDocument $xml
+     * @param DOMElement $attributes_element
+     * @param array $variant_data
+     */
+    private function add_variant_specific_attributes($xml, $attributes_element, $variant_data)
+    {
+        // Tutaj można dodać dodatkowe atrybuty specyficzne dla wariantu
+        // Na przykład różne wymiary, wagi, itp.
+    }
+
+    /**
+     * Generuje XML z próbką produktów do testowania.
+     *
+     * @param int $limit Liczba produktów do wygenerowania (domyślnie 25)
+     * @return array Status operacji
+     */
+    public function generate_test_xml($limit = 25)
+    {
+        error_log("MHI ANDA: Generuję XML testowy z $limit produktami");
+
+        try {
+            $result = $this->generate_all_xml_files($limit);
+
+            if ($result['success']) {
+                $result['message'] = "Wygenerowano XML testowy z $limit produktami ANDA (z wariantami)";
+                error_log("MHI ANDA: Zakończono generowanie XML testowego");
+
+                // Dodaj szczegółowe statystyki
+                if (isset($result['stats'])) {
+                    $stats = $result['stats'];
+                    error_log("MHI ANDA STATS: Główne produkty: {$stats['main_products']}, Produkty wariantowe: {$stats['variable_products']}, Łącznie wariantów: {$stats['total_variants']}");
+                }
+            }
+
+            return $result;
+
+        } catch (Exception $e) {
+            error_log('MHI ANDA ERROR: ' . $e->getMessage());
+            return [
+                'success' => false,
+                'message' => 'Błąd podczas generowania XML testowego: ' . $e->getMessage()
+            ];
+        }
+    }
+
+    /**
+     * Pobiera informacje o zgrupowanych produktach (do debugowania).
+     *
+     * @return array
+     */
+    public function get_grouping_info()
+    {
+        $info = [
+            'main_products' => count($this->main_products),
+            'variable_products' => count($this->variable_products),
+            'total_variants' => 0,
+            'examples' => []
+        ];
+
+        $example_count = 0;
+        foreach ($this->variable_products as $base_sku => $group) {
+            $info['total_variants'] += count($group['variants']);
+
+            if ($example_count < 5) {
+                $main_sku = $group['main_product'] ? $group['main_product']['item_number'] : 'BRAK';
+                $variant_skus = array_map(function ($v) {
+                    return $v['item_number'];
+                }, $group['variants']);
+
+                $info['examples'][] = [
+                    'base_sku' => $base_sku,
+                    'main_product' => $main_sku,
+                    'variants' => $variant_skus,
+                    'variant_count' => count($variant_skus)
+                ];
+
+                $example_count++;
+            }
+        }
+
+        return $info;
     }
 }
