@@ -3724,18 +3724,22 @@ class MHI_ANDA_WC_XML_Generator
         $attributes_element = $xml->createElement('attributes');
         $product_element->appendChild($attributes_element);
 
+        error_log("MHI ANDA: 🔍 Przetwarzam atrybuty dla produktu $item_number");
+
         // === PODSTAWOWE ATRYBUTY ===
 
         // Materiał
         $material = $this->detect_material($product);
         if (!empty($material)) {
             $this->add_complete_attribute($xml, $attributes_element, 'Materiał', $material);
+            error_log("MHI ANDA: ✅ Dodano materiał: $material");
         }
 
         // Wymiary
         if (!empty($product['width']) && !empty($product['height']) && !empty($product['depth'])) {
             $dimensions = $product['width'] . ' x ' . $product['height'] . ' x ' . $product['depth'] . ' cm';
             $this->add_complete_attribute($xml, $attributes_element, 'Wymiary', $dimensions);
+            error_log("MHI ANDA: ✅ Dodano wymiary: $dimensions");
         }
 
         // Wymiary pojedyncze
@@ -3765,7 +3769,9 @@ class MHI_ANDA_WC_XML_Generator
                 $size_value = $product['width'] . '×' . $product['height'] . ' mm';
             }
             $this->add_complete_attribute($xml, $attributes_element, 'Rozmiar', $size_value);
-            error_log("MHI ANDA: ✅ Dodano rozmiar: $size_value");
+            error_log("MHI ANDA: ✅ Dodano rozmiar z wymiarów: $size_value");
+        } else {
+            error_log("MHI ANDA: ⚠️ Brak wymiarów dla rozmiaru - width: " . ($product['width'] ?? 'brak') . ", height: " . ($product['height'] ?? 'brak'));
         }
 
         // Kod produktu z końcówką koloru - zgodnie z wymaganiami: <relatedProduct>AP718237-01</relatedProduct>
@@ -3835,10 +3841,12 @@ class MHI_ANDA_WC_XML_Generator
     private function add_specification_attributes($xml, $attributes_element, $product)
     {
         if (empty($product['specification']['property'])) {
+            error_log("MHI ANDA: ❌ Brak specification/property w produkcie");
             return;
         }
 
         $properties = $product['specification']['property'];
+        error_log("MHI ANDA: 📋 Znaleziono " . (is_array($properties) ? count($properties) : 1) . " właściwości specification");
 
         // Jeśli to pojedyncza właściwość
         if (isset($properties['n'])) {
@@ -3846,14 +3854,20 @@ class MHI_ANDA_WC_XML_Generator
         }
 
         foreach ($properties as $property) {
-            if (!empty($property['n']) && !empty($property['values']['value'])) {
-                $attr_name = $property['n'];
+            // Sprawdź czy to 'n' (stary format) czy 'name' (nowy format)
+            $attr_name = $property['n'] ?? $property['name'] ?? '';
+            $attr_value = '';
+
+            if (!empty($attr_name) && !empty($property['values']['value'])) {
                 $values = is_array($property['values']['value']) ?
                     $property['values']['value'] :
                     [$property['values']['value']];
 
                 $attr_value = implode(', ', $values);
                 $this->add_complete_attribute($xml, $attributes_element, $attr_name, $attr_value);
+                error_log("MHI ANDA: ✅ Dodano atrybut specification: $attr_name = $attr_value");
+            } else {
+                error_log("MHI ANDA: ⚠️ Pominięto właściwość - brak nazwy lub wartości: " . json_encode($property));
             }
         }
     }

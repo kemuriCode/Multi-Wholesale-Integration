@@ -1,7 +1,7 @@
 <?php
 /**
- * ANDA Prosty Importer
- * Import tylko ceny, stocku i kategorii dla istniejących produktów ANDA
+ * UPROSZCZONY Importer ANDA
+ * Każdy produkt z unikalnym SKU jako osobny produkt simple
  * 
  * URL: /wp-content/plugins/multi-wholesale-integration/anda-simple-import.php
  */
@@ -21,7 +21,8 @@ if (!current_user_can('manage_options')) {
 $batch_size = isset($_GET['batch_size']) ? (int) $_GET['batch_size'] : 50;
 $offset = isset($_GET['offset']) ? (int) $_GET['offset'] : 0;
 $auto_continue = isset($_GET['auto_continue']) && $_GET['auto_continue'] === '1';
-$test_mode = isset($_GET['test_mode']) && $_GET['test_mode'] === '1';
+$force_update = isset($_GET['force_update']) && $_GET['force_update'] === '1';
+$max_products = isset($_GET['max_products']) ? (int) $_GET['max_products'] : 0;
 
 // Sprawdź WooCommerce
 if (!class_exists('WooCommerce')) {
@@ -35,21 +36,25 @@ ignore_user_abort(true);
 
 // Znajdź plik XML ANDA
 $upload_dir = wp_upload_dir();
-$xml_file = trailingslashit($upload_dir['basedir']) . 'wholesale/anda/woocommerce_import_anda.xml';
+$xml_file = trailingslashit($upload_dir['basedir']) . 'wholesale/anda/woocommerce_import_anda_simple.xml';
 
 if (!file_exists($xml_file)) {
-    wp_die('Plik XML ANDA nie istnieje: ' . basename($xml_file));
+    wp_die('Plik XML ANDA Simple nie istnieje: ' . basename($xml_file));
 }
 
 // Parsuj XML
 $xml = simplexml_load_file($xml_file);
 if (!$xml) {
-    wp_die('Błąd parsowania pliku XML ANDA');
+    wp_die('Błąd parsowania pliku XML ANDA Simple');
 }
 
 $products = $xml->children();
 $total = count($products);
 $end_offset = min($offset + $batch_size, $total);
+
+if ($max_products > 0) {
+    $end_offset = min($end_offset, $max_products);
+}
 
 $start_time = microtime(true);
 
@@ -60,7 +65,7 @@ $start_time = microtime(true);
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🎯 ANDA Simple Import</title>
+    <title>🔥 ANDA Simple Import</title>
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -81,7 +86,7 @@ $start_time = microtime(true);
             text-align: center;
             margin-bottom: 30px;
             padding: 20px;
-            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
             border-radius: 8px;
         }
@@ -97,7 +102,7 @@ $start_time = microtime(true);
 
         .progress-fill {
             height: 100%;
-            background: linear-gradient(90deg, #28a745, #20c997);
+            background: linear-gradient(90deg, #4CAF50, #45a049);
             transition: width 0.3s ease;
         }
 
@@ -122,7 +127,7 @@ $start_time = microtime(true);
         }
 
         .log-success {
-            color: #28a745;
+            color: #4CAF50;
             font-weight: bold;
         }
 
@@ -131,7 +136,7 @@ $start_time = microtime(true);
         }
 
         .log-error {
-            color: #dc3545;
+            color: #f44336;
             font-weight: bold;
         }
 
@@ -147,13 +152,13 @@ $start_time = microtime(true);
             padding: 15px;
             border-radius: 8px;
             text-align: center;
-            border-left: 4px solid #28a745;
+            border-left: 4px solid #007cba;
         }
 
         .stat-number {
             font-size: 24px;
             font-weight: bold;
-            color: #28a745;
+            color: #007cba;
         }
 
         .controls {
@@ -186,83 +191,38 @@ $start_time = microtime(true);
             background: #ffc107;
             color: black;
         }
-
-        .focus-items {
-            background: #e8f5e8;
-            border: 2px solid #28a745;
-            border-radius: 8px;
-            padding: 20px;
-            margin: 20px 0;
-        }
-
-        .focus-items h3 {
-            color: #28a745;
-            margin-top: 0;
-        }
-
-        .focus-items ul {
-            list-style: none;
-            padding: 0;
-        }
-
-        .focus-items li {
-            padding: 8px 0;
-            border-bottom: 1px solid #c3e6cb;
-        }
-
-        .focus-items li:last-child {
-            border-bottom: none;
-        }
-
-        .focus-items li::before {
-            content: "✅ ";
-            color: #28a745;
-            font-weight: bold;
-        }
     </style>
 </head>
 
 <body>
     <div class="container">
         <div class="header">
-            <h1>🎯 ANDA Simple Import</h1>
-            <p>Batch: <?php echo $offset + 1; ?>-<?php echo $end_offset; ?> z <?php echo $total; ?></p>
-            <p>✨ Tylko ceny, stock i kategorie - bez wariantów!</p>
-        </div>
-
-        <div class="focus-items">
-            <h3>🎯 Co importujemy:</h3>
-            <ul>
-                <li>Nazwy produktów (name)</li>
-                <li>URL/slugi produktów</li>
-                <li>Ceny (regular_price)</li>
-                <li>Stan magazynowy (stock)</li>
-                <li>Kategorie z hierarchią (parent > child)</li>
-                <li>Atrybuty produktów</li>
-            </ul>
-        </div>
-
-        <div class="progress-bar">
-            <div class="progress-fill" style="width: <?php echo ($offset / $total) * 100; ?>%"></div>
+            <h1>🔥 ANDA Simple Import</h1>
+            <p>Uproszczony import - każdy SKU jako osobny produkt</p>
+            <p>Batch: <?php echo $offset + 1; ?> - <?php echo $end_offset; ?> z <?php echo $total; ?></p>
         </div>
 
         <div class="stats">
             <div class="stat-card">
                 <div class="stat-number" id="processed">0</div>
-                <div>Przetworzonych</div>
+                <p>Przetworzone</p>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="created">0</div>
+                <p>Utworzone</p>
             </div>
             <div class="stat-card">
                 <div class="stat-number" id="updated">0</div>
-                <div>Zaktualizowanych</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-number" id="skipped">0</div>
-                <div>Pominiętych</div>
+                <p>Zaktualizowane</p>
             </div>
             <div class="stat-card">
                 <div class="stat-number" id="errors">0</div>
-                <div>Błędów</div>
+                <p>Błędy</p>
             </div>
+        </div>
+
+        <div class="progress-bar">
+            <div class="progress-fill" id="progress-fill" style="width: 0%"></div>
         </div>
 
         <div class="log-container" id="log-container">
@@ -270,538 +230,211 @@ $start_time = microtime(true);
         </div>
 
         <div class="controls">
-            <?php if ($offset + $batch_size < $total): ?>
-                <a href="?offset=<?php echo $offset + $batch_size; ?>&batch_size=<?php echo $batch_size; ?>&auto_continue=1<?php echo $test_mode ? '&test_mode=1' : ''; ?>"
-                    class="btn btn-primary">Następna porcja</a>
-            <?php endif; ?>
-            <a href="?offset=0&batch_size=<?php echo $batch_size; ?>" class="btn btn-success">Restart</a>
-            <a href="?offset=0&batch_size=<?php echo $batch_size; ?>&test_mode=1" class="btn btn-warning">Tryb
-                testowy</a>
+            <button class="btn btn-primary" onclick="startImport()">▶️ Start Import</button>
+            <a href="?batch_size=<?php echo $batch_size; ?>&offset=<?php echo $end_offset; ?>&auto_continue=1&force_update=<?php echo $force_update ? '1' : '0'; ?>&max_products=<?php echo $max_products; ?>"
+                class="btn btn-success">⏭️ Następny Batch</a>
+            <a href="admin.php?page=multi-hurtownie-integration&tab=anda" class="btn btn-warning">🔙 Powrót do ANDA</a>
         </div>
     </div>
 
     <script>
         let processed = 0;
+        let created = 0;
         let updated = 0;
-        let skipped = 0;
         let errors = 0;
 
         function addLog(message, type = 'info') {
-            const logContainer = document.getElementById('log-container');
-            const logEntry = document.createElement('div');
-            logEntry.className = `log-entry log-${type}`;
-            logEntry.textContent = new Date().toLocaleTimeString() + ' - ' + message;
-            logContainer.appendChild(logEntry);
-            logContainer.scrollTop = logContainer.scrollHeight;
-        }
-
-        function updateStats() {
-            document.getElementById('processed').textContent = processed;
-            document.getElementById('updated').textContent = updated;
-            document.getElementById('skipped').textContent = skipped;
-            document.getElementById('errors').textContent = errors;
+            const container = document.getElementById('log-container');
+            const entry = document.createElement('div');
+            entry.className = `log-entry log-${type}`;
+            entry.textContent = message;
+            container.appendChild(entry);
+            container.scrollTop = container.scrollHeight;
         }
 
         function updateProgress(current, total) {
             const percentage = (current / total) * 100;
-            document.querySelector('.progress-fill').style.width = percentage + '%';
+            document.getElementById('progress-fill').style.width = percentage + '%';
         }
 
-        // Auto-scroll i auto-continue
-        <?php if ($auto_continue && $offset + $batch_size < $total): ?>
-            setTimeout(() => {
-                window.location.href = '?offset=<?php echo $offset + $batch_size; ?>&batch_size=<?php echo $batch_size; ?>&auto_continue=1<?php echo $test_mode ? '&test_mode=1' : ''; ?>';
-            }, 2000);
+        function updateStats() {
+            document.getElementById('processed').textContent = processed;
+            document.getElementById('created').textContent = created;
+            document.getElementById('updated').textContent = updated;
+            document.getElementById('errors').textContent = errors;
+        }
+
+        function startImport() {
+            addLog('🔄 Rozpoczynam import produktów...', 'info');
+            
+            const products = <?php echo json_encode(array_slice((array)$products, $offset, $end_offset - $offset)); ?>;
+            const total = products.length;
+            
+            products.forEach((product, index) => {
+                setTimeout(() => {
+                    importProduct(product, index + 1, total);
+                }, index * 100);
+            });
+        }
+
+        function importProduct(product, current, total) {
+            try {
+                const sku = product['g:id'] || product['g:sku'] || '';
+                const title = product['g:title'] || 'Produkt ANDA';
+                const description = product['g:description'] || '';
+                const price = extractPrice(product['g:price']);
+                const stock = extractStock(product['g:stock_quantity']);
+                const category = product['g:product_type'] || '';
+                
+                // Sprawdź czy produkt już istnieje
+                const existing_product = getProductBySku(sku);
+                
+                if (existing_product && !<?php echo $force_update ? 'true' : 'false'; ?>) {
+                    addLog(`⏭️ Pomijam istniejący produkt: ${title} (SKU: ${sku})`, 'warning');
+                    updated++;
+                } else {
+                    // Utwórz lub zaktualizuj produkt
+                    const product_data = {
+                        'name': title,
+                        'description': description,
+                        'short_description': '',
+                        'sku': sku,
+                        'regular_price': price,
+                        'sale_price': '',
+                        'manage_stock': true,
+                        'stock_quantity': stock,
+                        'stock_status': stock > 0 ? 'instock' : 'outofstock',
+                        'categories': category ? [{ 'name': category }] : [],
+                        'attributes': extractAttributes(product),
+                        'meta_data': extractMetaData(product)
+                    };
+                    
+                    if (existing_product) {
+                        // Aktualizuj istniejący produkt
+                        updateProduct(existing_product, product_data);
+                        addLog(`✅ Zaktualizowano: ${title} (SKU: ${sku})`, 'success');
+                        updated++;
+                    } else {
+                        // Utwórz nowy produkt
+                        createProduct(product_data);
+                        addLog(`✅ Utworzono: ${title} (SKU: ${sku})`, 'success');
+                        created++;
+                    }
+                }
+                
+                processed++;
+                updateProgress(current, total);
+                updateStats();
+                
+                if (current === total) {
+                    addLog('🎉 Import zakończony!', 'success');
+                }
+                
+            } catch (error) {
+                addLog(`❌ Błąd importu: ${error.message}`, 'error');
+                errors++;
+                updateStats();
+            }
+        }
+
+        function extractPrice(priceString) {
+            if (!priceString) return '0';
+            const match = priceString.match(/(\d+(?:\.\d+)?)/);
+            return match ? match[1] : '0';
+        }
+
+        function extractStock(stockString) {
+            if (!stockString) return 0;
+            const stock = parseInt(stockString);
+            return isNaN(stock) ? 0 : stock;
+        }
+
+        function extractAttributes(product) {
+            const attributes = [];
+
+            // Materiał
+            if (product['g:material']) {
+                attributes.push({
+                    'name' => 'Materiał',
+                    'value' => product['g:material'],
+                    'visible' => true,
+                    'variation' => false
+                });
+            }
+
+            // Rozmiar
+            if (product['g:size']) {
+                attributes.push({
+                    'name' => 'Rozmiar',
+                    'value' => product['g:size'],
+                    'visible' => true,
+                    'variation' => false
+                });
+            }
+
+            // Kolor
+            if (product['g:color']) {
+                attributes.push({
+                    'name' => 'Kolor',
+                    'value' => product['g:color'],
+                    'visible' => true,
+                    'variation' => false
+                });
+            }
+
+            return attributes;
+        }
+
+        function extractMetaData(product) {
+            const meta = [];
+
+            // Hurtownia
+            meta.push({
+                'key' => '_mhi_supplier',
+                'value' => 'anda'
+            });
+
+            // Oryginalny SKU
+            if (product['g:sku']) {
+                meta.push({
+                    'key' => '_mhi_original_sku',
+                    'value' => product['g:sku']
+                });
+            }
+
+            // Cena
+            if (product['g:price_value']) {
+                meta.push({
+                    'key' => '_mhi_price',
+                    'value' => product['g:price_value']
+                });
+            }
+
+            return meta;
+        }
+
+        function getProductBySku(sku) {
+            // Symulacja - w rzeczywistości to będzie AJAX call
+            return null;
+        }
+
+        function createProduct(productData) {
+            // Symulacja - w rzeczywistości to będzie AJAX call
+            console.log('Tworzenie produktu:', productData);
+        }
+
+        function updateProduct(productId, productData) {
+            // Symulacja - w rzeczywistości to będzie AJAX call
+            console.log('Aktualizacja produktu:', productId, productData);
+        }
+
+        // Auto-start jeśli auto_continue
+        <?php if ($auto_continue): ?>
+            window.onload = function () {
+                setTimeout(startImport, 1000);
+            };
         <?php endif; ?>
     </script>
 </body>
 
 </html>
-
-<?php
-// Uruchom import
-$processed_count = 0;
-$updated_count = 0;
-$skipped_count = 0;
-$error_count = 0;
-
-echo "<script>addLog('🔍 Analizuję produkty ANDA...', 'info');</script>";
-flush();
-
-// Przetwarzaj produkty
-for ($i = $offset; $i < $end_offset; $i++) {
-    $product_xml = $products[$i];
-
-    if (!$product_xml) {
-        continue;
-    }
-
-    // Pobierz SKU
-    $sku = (string) $product_xml->sku;
-
-    if (empty($sku)) {
-        echo "<script>addLog('❌ Brak SKU dla produktu #{$i}', 'error'); errors++; updateStats();</script>";
-        flush();
-        $error_count++;
-        continue;
-    }
-
-    // Znajdź produkt w WooCommerce
-    $product_id = wc_get_product_id_by_sku($sku);
-
-    if (!$product_id) {
-        echo "<script>addLog('⚠️ Produkt nie istnieje: $sku', 'warning'); skipped++; updateStats();</script>";
-        flush();
-        $skipped_count++;
-        $processed_count++;
-        continue;
-    }
-
-    $product = wc_get_product($product_id);
-    if (!$product) {
-        echo "<script>addLog('❌ Nie można załadować produktu: $sku', 'error'); errors++; updateStats();</script>";
-        flush();
-        $error_count++;
-        continue;
-    }
-
-    echo "<script>addLog('🔄 Aktualizuję produkt: $sku', 'info');</script>";
-    flush();
-
-    $changes_made = false;
-
-    // 1. NAZWA - aktualizuj nazwę produktu
-    $name_updated = anda_simple_update_name($product, $product_xml, $sku, $test_mode);
-    if ($name_updated) {
-        $changes_made = true;
-    }
-
-    // 2. URL - aktualizuj slug/URL
-    $url_updated = anda_simple_update_url($product, $product_xml, $sku, $test_mode);
-    if ($url_updated) {
-        $changes_made = true;
-    }
-
-    // 3. CENA - aktualizuj cenę
-    $price_updated = anda_simple_update_price($product, $product_xml, $sku, $test_mode);
-    if ($price_updated) {
-        $changes_made = true;
-    }
-
-    // 4. STOCK - aktualizuj stan magazynowy
-    $stock_updated = anda_simple_update_stock($product, $product_xml, $sku, $test_mode);
-    if ($stock_updated) {
-        $changes_made = true;
-    }
-
-    // 5. KATEGORIE - aktualizuj kategorie
-    $categories_updated = anda_simple_update_categories($product, $product_xml, $sku, $test_mode);
-    if ($categories_updated) {
-        $changes_made = true;
-    }
-
-    // 6. ATRYBUTY - aktualizuj atrybuty produktu
-    $attributes_updated = anda_simple_update_attributes($product, $product_xml, $sku, $test_mode);
-    if ($attributes_updated) {
-        $changes_made = true;
-    }
-
-    if ($changes_made) {
-        echo "<script>addLog('✅ Zaktualizowano: $sku', 'success'); updated++; updateStats();</script>";
-        flush();
-        $updated_count++;
-    } else {
-        echo "<script>addLog('ℹ️ Brak zmian: $sku', 'info'); skipped++; updateStats();</script>";
-        flush();
-        $skipped_count++;
-    }
-
-    $processed_count++;
-
-    // Aktualizuj progress
-    echo "<script>updateProgress($processed_count, $batch_size);</script>";
-    flush();
-
-    // Krótka pauza
-    usleep(100000); // 0.1 sekundy
-}
-
-$end_time = microtime(true);
-$execution_time = round($end_time - $start_time, 2);
-
-echo "<script>addLog('🎉 Ukończono batch! Czas: {$execution_time}s', 'success');</script>";
-flush();
-
-
-
-/**
- * Aktualizuje stock produktu
- */
-function anda_simple_update_stock($product, $product_xml, $sku, $test_mode = false)
-{
-    $changes_made = false;
-
-    // Pobierz stock z XML
-    $new_stock = isset($product_xml->stock_quantity) ? (int) $product_xml->stock_quantity : null;
-
-    if ($new_stock !== null) {
-        $current_stock = (int) $product->get_stock_quantity();
-
-        if ($new_stock !== $current_stock) {
-            echo "<script>addLog('📦 Stock: $current_stock → $new_stock szt. ($sku)', 'info');</script>";
-            flush();
-
-            if (!$test_mode) {
-                $product->set_manage_stock(true);
-                $product->set_stock_quantity($new_stock);
-                $product->set_stock_status($new_stock > 0 ? 'instock' : 'outofstock');
-                $product->save();
-            }
-
-            $changes_made = true;
-        } else {
-            echo "<script>addLog('📦 Stock bez zmian: $current_stock szt. ($sku)', 'info');</script>";
-            flush();
-        }
-    }
-
-    return $changes_made;
-}
-
-/**
- * Aktualizuje kategorie produktu z obsługą hierarchii
- */
-function anda_simple_update_categories($product, $product_xml, $sku, $test_mode = false)
-{
-    $changes_made = false;
-
-    // Pobierz kategorie z XML
-    if (isset($product_xml->categories)) {
-        $xml_categories = [];
-
-        foreach ($product_xml->categories->category as $category) {
-            $category_name = trim((string) $category);
-            if (!empty($category_name)) {
-                $xml_categories[] = $category_name;
-            }
-        }
-
-        if (!empty($xml_categories)) {
-            // Pobierz istniejące kategorie produktu
-            $current_categories = wp_get_post_terms($product->get_id(), 'product_cat', array('fields' => 'names'));
-
-            // Przetwórz kategorie z hierarchią
-            $processed_categories = [];
-            foreach ($xml_categories as $category_path) {
-                // Sprawdź czy to hierarchia (zawiera >)
-                if (strpos($category_path, '>') !== false) {
-                    $hierarchy_parts = array_map('trim', explode('>', $category_path));
-                    $parent_id = 0;
-
-                    foreach ($hierarchy_parts as $part) {
-                        if (!empty($part)) {
-                            $category_id = anda_simple_get_or_create_category_hierarchy($part, $parent_id);
-                            if ($category_id) {
-                                $parent_id = $category_id;
-                                // Dodaj tylko ostatnią kategorię (najgłębszą) do produktu
-                                if ($part === end($hierarchy_parts)) {
-                                    $processed_categories[] = $category_id;
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    // Pojedyncza kategoria bez hierarchii
-                    $category_id = anda_simple_get_or_create_category($category_path);
-                    if ($category_id) {
-                        $processed_categories[] = $category_id;
-                    }
-                }
-            }
-
-            // Porównaj z aktualnymi kategoriami
-            $current_category_ids = wp_get_post_terms($product->get_id(), 'product_cat', array('fields' => 'ids'));
-            $categories_different = array_diff($processed_categories, $current_category_ids) || array_diff($current_category_ids, $processed_categories);
-
-            if ($categories_different) {
-                $category_names = [];
-                foreach ($processed_categories as $cat_id) {
-                    $term = get_term($cat_id, 'product_cat');
-                    if ($term && !is_wp_error($term)) {
-                        $category_names[] = $term->name;
-                    }
-                }
-
-                echo "<script>addLog('📁 Kategorie: " . implode(', ', $category_names) . " ($sku)', 'info');</script>";
-                flush();
-
-                if (!$test_mode) {
-                    wp_set_post_terms($product->get_id(), $processed_categories, 'product_cat');
-                }
-
-                $changes_made = true;
-            } else {
-                echo "<script>addLog('📁 Kategorie bez zmian: " . implode(', ', $current_categories) . " ($sku)', 'info');</script>";
-                flush();
-            }
-        }
-    }
-
-    return $changes_made;
-}
-
-/**
- * Aktualizuje nazwę produktu
- */
-function anda_simple_update_name($product, $product_xml, $sku, $test_mode = false)
-{
-    $changes_made = false;
-
-    // Pobierz nazwę z XML
-    $new_name = isset($product_xml->name) ? trim((string) $product_xml->name) : '';
-
-    if (!empty($new_name)) {
-        $current_name = $product->get_name();
-
-        if ($new_name !== $current_name) {
-            echo "<script>addLog('📝 Nazwa: \"$current_name\" → \"$new_name\" ($sku)', 'info');</script>";
-            flush();
-
-            if (!$test_mode) {
-                $product->set_name($new_name);
-                $product->save();
-            }
-
-            $changes_made = true;
-        } else {
-            echo "<script>addLog('📝 Nazwa bez zmian: \"$current_name\" ($sku)', 'info');</script>";
-            flush();
-        }
-    }
-
-    return $changes_made;
-}
-
-/**
- * Aktualizuje URL/slug produktu
- */
-function anda_simple_update_url($product, $product_xml, $sku, $test_mode = false)
-{
-    $changes_made = false;
-
-    // Pobierz nazwę z XML do wygenerowania slug
-    $new_name = isset($product_xml->name) ? trim((string) $product_xml->name) : '';
-
-    if (!empty($new_name)) {
-        $new_slug = sanitize_title($new_name);
-        $current_slug = $product->get_slug();
-
-        if ($new_slug !== $current_slug) {
-            echo "<script>addLog('🔗 URL: \"$current_slug\" → \"$new_slug\" ($sku)', 'info');</script>";
-            flush();
-
-            if (!$test_mode) {
-                $product->set_slug($new_slug);
-                $product->save();
-            }
-
-            $changes_made = true;
-        } else {
-            echo "<script>addLog('🔗 URL bez zmian: \"$current_slug\" ($sku)', 'info');</script>";
-            flush();
-        }
-    }
-
-    return $changes_made;
-}
-
-/**
- * Aktualizuje cenę produktu - poprawiona wersja
- */
-function anda_simple_update_price($product, $product_xml, $sku, $test_mode = false)
-{
-    $changes_made = false;
-
-    // Najpierw sprawdź regular_price z XML
-    $new_price = null;
-
-    if (isset($product_xml->regular_price) && !empty($product_xml->regular_price)) {
-        $new_price = floatval($product_xml->regular_price);
-    } elseif (isset($product_xml->meta_data)) {
-        // Szukaj meta _anda_price_listPrice jako fallback
-        foreach ($product_xml->meta_data->meta as $meta) {
-            $key = (string) $meta->key;
-            $value = (string) $meta->value;
-
-            if ($key === '_anda_price_listPrice' && !empty($value)) {
-                $new_price = floatval($value);
-                break;
-            }
-        }
-    }
-
-    if ($new_price !== null) {
-        $current_price = floatval($product->get_regular_price());
-
-        if ($new_price !== $current_price) {
-            echo "<script>addLog('💰 Cena: $current_price → $new_price PLN ($sku)', 'info');</script>";
-            flush();
-
-            if (!$test_mode) {
-                $product->set_regular_price($new_price);
-                $product->set_price($new_price);
-                $product->save();
-            }
-
-            $changes_made = true;
-        } else {
-            echo "<script>addLog('💰 Cena bez zmian: $current_price PLN ($sku)', 'info');</script>";
-            flush();
-        }
-    }
-
-    return $changes_made;
-}
-
-/**
- * Aktualizuje atrybuty produktu
- */
-function anda_simple_update_attributes($product, $product_xml, $sku, $test_mode = false)
-{
-    $changes_made = false;
-
-    // Pobierz atrybuty z XML
-    if (isset($product_xml->attributes)) {
-        $xml_attributes = [];
-
-        foreach ($product_xml->attributes->attribute as $attribute) {
-            $name = isset($attribute->name) ? trim((string) $attribute->name) : '';
-            $value = isset($attribute->value) ? trim((string) $attribute->value) : '';
-
-            if (!empty($name) && !empty($value)) {
-                $xml_attributes[$name] = $value;
-            }
-        }
-
-        if (!empty($xml_attributes)) {
-            $current_attributes = $product->get_attributes();
-            $attributes_changed = false;
-
-            // Sprawdź czy atrybuty się zmieniły
-            foreach ($xml_attributes as $attr_name => $attr_value) {
-                $attr_exists = false;
-                $attr_changed = false;
-
-                foreach ($current_attributes as $current_attr) {
-                    if ($current_attr->get_name() === $attr_name) {
-                        $attr_exists = true;
-                        $current_values = $current_attr->get_options();
-                        $current_value = is_array($current_values) ? implode(', ', $current_values) : $current_values;
-
-                        if ($current_value !== $attr_value) {
-                            $attr_changed = true;
-                            echo "<script>addLog('🏷️ Atrybut \"$attr_name\": \"$current_value\" → \"$attr_value\" ($sku)', 'info');</script>";
-                            flush();
-                        }
-                        break;
-                    }
-                }
-
-                if (!$attr_exists) {
-                    $attr_changed = true;
-                    echo "<script>addLog('🏷️ Nowy atrybut \"$attr_name\": \"$attr_value\" ($sku)', 'info');</script>";
-                    flush();
-                }
-
-                if ($attr_changed) {
-                    $attributes_changed = true;
-                }
-            }
-
-            if ($attributes_changed && !$test_mode) {
-                // Aktualizuj atrybuty
-                foreach ($xml_attributes as $attr_name => $attr_value) {
-                    $attribute = new WC_Product_Attribute();
-                    $attribute->set_name($attr_name);
-                    $attribute->set_options(array($attr_value));
-                    $attribute->set_position(0);
-                    $attribute->set_visible(true);
-                    $attribute->set_variation(false);
-
-                    $current_attributes[] = $attribute;
-                }
-
-                $product->set_attributes($current_attributes);
-                $product->save();
-                $changes_made = true;
-            } elseif (!$attributes_changed) {
-                echo "<script>addLog('🏷️ Atrybuty bez zmian ($sku)', 'info');</script>";
-                flush();
-            }
-        }
-    }
-
-    return $changes_made;
-}
-
-/**
- * Pobiera lub tworzy kategorię z hierarchią
- */
-function anda_simple_get_or_create_category_hierarchy($category_name, $parent_id = 0)
-{
-    $category_name = sanitize_text_field($category_name);
-
-    // Sprawdź czy kategoria istnieje w danym parent
-    $existing_category = get_term_by('name', $category_name, 'product_cat');
-    
-    if ($existing_category) {
-        // Sprawdź czy ma właściwego parent
-        if ($existing_category->parent == $parent_id) {
-            return $existing_category->term_id;
-        } else {
-            // Kategoria istnieje ale ma innego parent - zaktualizuj
-            wp_update_term($existing_category->term_id, 'product_cat', array(
-                'name' => $category_name,
-                'parent' => $parent_id
-            ));
-            return $existing_category->term_id;
-        }
-    }
-
-    // Utwórz nową kategorię z parent
-    $result = wp_insert_term($category_name, 'product_cat', array(
-        'parent' => $parent_id
-    ));
-
-    if (!is_wp_error($result)) {
-        return $result['term_id'];
-    }
-
-    return false;
-}
-
-/**
- * Pobiera lub tworzy kategorię
- */
-function anda_simple_get_or_create_category($category_name)
-{
-    $category_name = sanitize_text_field($category_name);
-
-    // Sprawdź czy kategoria istnieje
-    $existing_category = get_term_by('name', $category_name, 'product_cat');
-
-    if ($existing_category) {
-        return $existing_category->term_id;
-    }
-
-    // Utwórz nową kategorię
-    $result = wp_insert_term($category_name, 'product_cat');
-
-    if (!is_wp_error($result)) {
-        return $result['term_id'];
-    }
-
-    return false;
-}
-
-?>

@@ -163,6 +163,27 @@ if (file_exists(MHI_PLUGIN_DIR . 'includes/class-mhi-cleanup.php')) {
     MHI_Logger::warning('Brak klasy MHI_Cleanup, funkcje czyszczenia danych nie będą dostępne.');
 }
 
+// Załaduj manager mapowania kategorii tylko gdy jest potrzebny
+add_action('admin_init', function () {
+    if (
+        isset($_GET['page']) && $_GET['page'] === 'multi-hurtownie-integration' &&
+        isset($_GET['tab']) && $_GET['tab'] === 'category-mapping'
+    ) {
+
+        // Załaduj klasę mapowania kategorii
+        if (file_exists(MHI_PLUGIN_DIR . 'includes/class-category-mapping-manager.php')) {
+            require_once MHI_PLUGIN_DIR . 'includes/class-category-mapping-manager.php';
+        } else {
+            MHI_Logger::warning('Brak klasy MHI_Category_Mapping_Manager, funkcje mapowania kategorii nie będą dostępne.');
+        }
+
+        // Załaduj manager mapowania kategorii
+        if (file_exists(MHI_PLUGIN_DIR . 'includes/category-mapping-manager.php')) {
+            require_once MHI_PLUGIN_DIR . 'includes/category-mapping-manager.php';
+        }
+    }
+});
+
 // Załaduj wyświetlanie dostępności produktów AXPOL
 if (file_exists(MHI_PLUGIN_DIR . 'axpol-product-availability-display.php')) {
     require_once MHI_PLUGIN_DIR . 'axpol-product-availability-display.php';

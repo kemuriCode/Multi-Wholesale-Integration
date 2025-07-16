@@ -60,6 +60,11 @@ $active_tab = isset($_GET['tab']) ? sanitize_text_field($_GET['tab']) : 'general
             <span class="dashicons dashicons-admin-generic"></span>
             <?php _e('AI Kategorie', 'multi-hurtownie-integration'); ?>
         </a>
+        <a href="?page=multi-hurtownie-integration&tab=category-mapping"
+            class="nav-tab <?php echo $active_tab === 'category-mapping' ? 'nav-tab-active' : ''; ?>">
+            <span class="dashicons dashicons-category"></span>
+            <?php _e('Mapowanie Kategorii', 'multi-hurtownie-integration'); ?>
+        </a>
     </h2>
 
     <div class="mhi-admin-content">
@@ -1279,11 +1284,88 @@ $active_tab = isset($_GET['tab']) ? sanitize_text_field($_GET['tab']) : 'general
                                 </ul>
                             </div>
                         </div>
+
+                        <!-- ANDA Simple Generator - Uproszczony Import -->
+                        <div class="mhi-action-section"
+                            style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #e5e5e5;">
+                            <h3>🔥 <?php _e('ANDA Simple Generator - Uproszczony Import', 'multi-hurtownie-integration'); ?>
+                            </h3>
+                            <p><?php _e('Uproszczony system importu ANDA - każdy produkt z unikalnym SKU jako osobny produkt simple, bez wariantów.', 'multi-hurtownie-integration'); ?>
+                            </p>
+
+                            <div style="background: #f3e5f5; padding: 15px; border-radius: 5px; margin: 15px 0;">
+                                <h4 style="margin-top: 0; color: #7b1fa2;">🎯 Uproszczony system ANDA Simple:</h4>
+                                <ul style="margin-left: 20px;">
+                                    <li><strong>🔄 Każdy SKU osobno:</strong> Bez grupowania w warianty</li>
+                                    <li><strong>📦 Produkty simple:</strong> Proste produkty bez wariantów</li>
+                                    <li><strong>💰 Kompletne dane:</strong> Ceny, stock, kategorie, atrybuty</li>
+                                    <li><strong>🏷️ Atrybuty produktowe:</strong> Materiał, rozmiar, kolor</li>
+                                    <li><strong>📂 Mapowanie kategorii:</strong> Hierarchia kategorii ANDA</li>
+                                </ul>
+                            </div>
+
+                            <div style="text-align: center; margin: 20px 0;">
+                                <div class="controls">
+                                    <a href="<?php echo plugin_dir_url(dirname(dirname(__FILE__))); ?>test-anda-simple-generator.php"
+                                        class="button button-primary button-hero" target="_blank"
+                                        style="background: linear-gradient(45deg, #667eea, #764ba2); border: none; box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4); padding: 20px 40px; font-size: 16px; color: white; text-decoration: none;">
+                                        <span class="dashicons dashicons-admin-generic"
+                                            style="font-size: 20px; margin-right: 8px;"></span>
+                                        🔥 <?php _e('Otwórz ANDA Simple Generator', 'multi-hurtownie-integration'); ?>
+                                    </a>
+                                </div>
+                                <div class="controls" style="margin-top: 20px;">
+                                    <a href="<?php echo plugin_dir_url(dirname(dirname(__FILE__))); ?>anda-category-fixer.php"
+                                        class="button button-primary button-hero" target="_blank"
+                                        style="background: linear-gradient(45deg, #ff6b6b, #ee5a24); border: none; box-shadow: 0 4px 15px rgba(255, 107, 107, 0.4); padding: 20px 40px; font-size: 16px; color: white; text-decoration: none;">
+                                        <span class="dashicons dashicons-admin-tools"
+                                            style="font-size: 20px; margin-right: 8px;"></span>
+                                        🔧 <?php _e('Otwórz ANDA Category Fixer', 'multi-hurtownie-integration'); ?>
+                                    </a>
+                                </div>
+
+                                <div class="notice notice-warning inline" style="margin-top: 15px;">
+                                    <p><strong>🧹 Nowa funkcjonalność - Czyszczenie kategorii:</strong></p>
+                                    <ul>
+                                        <li>✅ Usuwa długie łańcuchy kategorii z '>' (np. "Torby i podróże > Akcesoria
+                                            podróżne > Rozgałęźnik uniwersalny")</li>
+                                        <li>✅ Zachowuje tylko główne kategorie (np. "Torby i podróże", "Torby termiczne")
+                                        </li>
+                                        <li>✅ Auto-continue: Automatyczne przechodzenie przez wszystkie produkty</li>
+                                        <li>✅ Batch processing: Przetwarzanie w małych partiach</li>
+                                        <li>✅ Szczegółowe logowanie i monitoring postępu</li>
+                                    </ul>
+                                </div>
+                            </div>
+
+                            <div class="notice notice-info inline">
+                                <p><strong><?php _e('Zalety ANDA Simple Generator:', 'multi-wholesale-integration'); ?></strong>
+                                </p>
+                                <ul>
+                                    <li><?php _e('✅ Prosty XML: Każdy produkt jako osobny element', 'multi-wholesale-integration'); ?>
+                                    </li>
+                                    <li><?php _e('✅ Bez wariantów: Nie grupuje produktów', 'multi-wholesale-integration'); ?>
+                                    </li>
+                                    <li><?php _e('✅ Szybki import: Mniej skomplikowana logika', 'multi-wholesale-integration'); ?>
+                                    </li>
+                                    <li><?php _e('✅ Testowanie: Możliwość testów na małych partiach', 'multi-wholesale-integration'); ?>
+                                    </li>
+                                    <li><?php _e('✅ Podgląd XML: Sprawdzenie przed importem', 'multi-wholesale-integration'); ?>
+                                    </li>
+                                    <li><?php _e('✅ Mapowanie kategorii: Hierarchia kategorii ANDA', 'multi-wholesale-integration'); ?>
+                                    </li>
+                                </ul>
+                            </div>
+                        </div>
                     </div>
                 </div>
             <?php elseif ($active_tab === 'ai-categories'): ?>
                 <!-- Sekcja: AI Kategorie -->
                 <?php include_once MHI_PLUGIN_DIR . 'admin/views/ai-categories-page.php'; ?>
+
+            <?php elseif ($active_tab === 'category-mapping'): ?>
+                <!-- Sekcja: Mapowanie Kategorii -->
+                <?php include_once MHI_PLUGIN_DIR . 'includes/category-mapping-manager.php'; ?>
 
             <?php endif; ?>
         </div>
