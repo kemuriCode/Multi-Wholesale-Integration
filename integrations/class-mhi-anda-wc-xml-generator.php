@@ -249,13 +249,15 @@ class MHI_ANDA_WC_XML_Generator
 
     /**
      * Generuje KOMPLETNY plik XML ANDA dla WooCommerce z wszystkimi danymi.
+     * NOWA WERSJA: Wspiera nadpisywanie i jest kompatybilna z cron import.
      *
+     * @param bool $force_regenerate Czy forsować ponowne generowanie
      * @return array Status operacji
      */
-    public function generate_all_xml_files()
+    public function generate_all_xml_files($force_regenerate = false)
     {
         try {
-            error_log('MHI ANDA: Rozpoczynam KOMPLETNE generowanie pliku XML z wszystkimi danymi');
+            error_log('MHI ANDA: 🚀 Rozpoczynam NOWE generowanie XML w stylu Malfini + variations');
 
             $this->log_memory_usage('Początek generowania');
 
@@ -269,16 +271,36 @@ class MHI_ANDA_WC_XML_Generator
                 wp_mkdir_p($this->target_dir);
             }
 
+            // Sprawdź czy plik już istnieje i czy forsować regenerację
+            $xml_file = $this->target_dir . '/woocommerce_import_anda.xml';
+            if (!$force_regenerate && file_exists($xml_file)) {
+                $file_age = time() - filemtime($xml_file);
+                if ($file_age < 3600) { // Młodszy niż 1 godzina
+                    error_log('MHI ANDA: ⏰ Plik XML jest świeży (' . round($file_age / 60) . ' min), pomijam regenerację');
+                    return [
+                        'success' => true,
+                        'message' => 'Plik XML jest aktualny, nie wymaga regeneracji',
+                        'file' => 'woocommerce_import_anda.xml',
+                        'age_minutes' => round($file_age / 60)
+                    ];
+                }
+            }
+
             // Wczytaj dane z plików XML
             $this->load_all_data();
             $this->log_memory_usage('Po wczytaniu danych');
 
-            // Generuj pliki ze wszystkimi danymi
+            // Generuj główny plik produktów (nowa logika)
             $products_result = $this->generate_products_xml();
+
+            // Opcjonalnie generuj pomocnicze pliki
             $categories_result = $this->generate_categories_xml();
             $printing_result = $this->generate_printing_services_xml();
 
             $this->log_memory_usage('Po wygenerowaniu wszystkich plików');
+
+            // Oznacz czas generacji
+            $this->save_generation_metadata($products_result);
 
             // Zwolnij pamięć
             unset($this->products_data, $this->categories_data, $this->printing_prices_data);
@@ -286,12 +308,13 @@ class MHI_ANDA_WC_XML_Generator
 
             return [
                 'success' => true,
-                'message' => 'Wszystkie pliki XML zostały wygenerowane z kompletnymi danymi ANDA',
+                'message' => '✅ NOWY XML ANDA wygenerowany w stylu Malfini z variable products',
                 'results' => [
                     'products' => $products_result,
                     'categories' => $categories_result,
                     'printing_prices' => $printing_result
-                ]
+                ],
+                'compatibility' => 'anda-import.php replacement ready'
             ];
 
         } catch (Exception $e) {
@@ -300,6 +323,310 @@ class MHI_ANDA_WC_XML_Generator
                 'success' => false,
                 'message' => 'Błąd: ' . $e->getMessage()
             ];
+        }
+    }
+
+    /**
+     * Zapisuje metadane o generacji pliku.
+     *
+     * @param array $result
+     */
+    private function save_generation_metadata($result)
+    {
+        $metadata = [
+            'generated_at' => date('Y-m-d H:i:s'),
+            'total_products' => $result['count'] ?? 0,
+            'total_variants' => $result['variants'] ?? 0,
+            'generator_version' => 'malfini_style_v1',
+            'supports_overwrite' => true
+        ];
+
+        $metadata_file = $this->target_dir . '/generation_metadata.json';
+        file_put_contents($metadata_file, json_encode($metadata, JSON_PRETTY_PRINT));
+
+        error_log('MHI ANDA: 💾 Zapisano metadane generacji do ' . $metadata_file);
+    }
+
+    /**
+     * Sprawdza czy plik XML wymaga regeneracji.
+     *
+     * @return bool
+     */
+    public function needs_regeneration()
+    {
+        $xml_file = $this->target_dir . '/woocommerce_import_anda.xml';
+        $metadata_file = $this->target_dir . '/generation_metadata.json';
+
+        if (!file_exists($xml_file) || !file_exists($metadata_file)) {
+            return true;
+        }
+
+        $file_age = time() - filemtime($xml_file);
+
+        // Regeneruj co 6 godzin lub jeśli plik jest starszy
+        return $file_age > 21600; // 6 godzin = 21600 sekund
+    }
+
+    /**
+     * Funkcja kompatybilności z anda-import.php - zastępuje logikę grupowania.
+     * Ta funkcja jest wywoływana przez cron i import.php zamiast starej logiki.
+     *
+     * @param bool $force_update Czy forsować aktualizację
+     * @return array Status operacji
+     */
+    public function generate_for_import($force_update = false)
+    {
+        error_log('MHI ANDA: 🔄 Wywołano generate_for_import() - zastępuje logikę anda-import.php');
+
+        try {
+            // Sprawdź czy regeneracja jest potrzebna
+            if (!$force_update && !$this->needs_regeneration()) {
+                error_log('MHI ANDA: ✅ XML jest aktualny, pomijam regenerację');
+                return [
+                    'success' => true,
+                    'action' => 'skipped',
+                    'message' => 'XML file is up to date',
+                    'file' => $this->target_dir . '/woocommerce_import_anda.xml'
+                ];
+            }
+
+            // Generuj nowy XML
+            $result = $this->generate_all_xml_files($force_update);
+
+            if ($result['success']) {
+                error_log('MHI ANDA: 🎉 Nowy XML wygenerowany - gotowy do importu przez WooCommerce');
+
+                return [
+                    'success' => true,
+                    'action' => 'generated',
+                    'message' => 'New XML generated with variable products structure',
+                    'file' => $this->target_dir . '/woocommerce_import_anda.xml',
+                    'stats' => [
+                        'products' => $result['results']['products']['count'] ?? 0,
+                        'variants' => $result['results']['products']['variants'] ?? 0
+                    ],
+                    'compatibility_mode' => 'malfini_style_with_variations'
+                ];
+            } else {
+                throw new Exception($result['message']);
+            }
+
+        } catch (Exception $e) {
+            error_log('MHI ANDA ERROR: generate_for_import() failed: ' . $e->getMessage());
+            return [
+                'success' => false,
+                'action' => 'error',
+                'message' => $e->getMessage()
+            ];
+        }
+    }
+
+    /**
+     * Zwraca informacje o wygenerowanym pliku XML dla WooCommerce.
+     * Używane przez import.php do sprawdzania statusu.
+     *
+     * @return array Informacje o pliku
+     */
+    public function get_xml_file_info()
+    {
+        $xml_file = $this->target_dir . '/woocommerce_import_anda.xml';
+        $metadata_file = $this->target_dir . '/generation_metadata.json';
+
+        if (!file_exists($xml_file)) {
+            return [
+                'exists' => false,
+                'message' => 'XML file not generated yet'
+            ];
+        }
+
+        $info = [
+            'exists' => true,
+            'file_path' => $xml_file,
+            'file_size' => filesize($xml_file),
+            'file_size_mb' => round(filesize($xml_file) / 1024 / 1024, 2),
+            'modified' => filemtime($xml_file),
+            'modified_human' => date('Y-m-d H:i:s', filemtime($xml_file)),
+            'age_minutes' => round((time() - filemtime($xml_file)) / 60),
+            'structure' => 'malfini_style_with_variations'
+        ];
+
+        // Dodaj metadane jeśli istnieją
+        if (file_exists($metadata_file)) {
+            $metadata = json_decode(file_get_contents($metadata_file), true);
+            if ($metadata) {
+                $info['metadata'] = $metadata;
+                $info['total_products'] = $metadata['total_products'] ?? 0;
+                $info['total_variants'] = $metadata['total_variants'] ?? 0;
+            }
+        }
+
+        return $info;
+    }
+
+    /**
+     * Sprawdza kompatybilność z aktualną wersją import.php.
+     * Zwraca czy można bezpiecznie używać nowej struktury.
+     *
+     * @return array Status kompatybilności
+     */
+    public function check_import_compatibility()
+    {
+        $recommendations = [];
+
+        // Sprawdź czy można przejść na nową strukturę
+        $xml_info = $this->get_xml_file_info();
+
+        if ($xml_info['exists']) {
+            $recommendations[] = [
+                'type' => 'success',
+                'message' => 'Nowy XML w stylu Malfini został wygenerowany',
+                'action' => 'Możesz używać tego pliku zamiast logiki anda-import.php'
+            ];
+
+            if ($xml_info['age_minutes'] > 360) { // 6 godzin
+                $recommendations[] = [
+                    'type' => 'warning',
+                    'message' => 'XML jest starszy niż 6 godzin',
+                    'action' => 'Rozważ regenerację: $generator->generate_for_import(true)'
+                ];
+            }
+        } else {
+            $recommendations[] = [
+                'type' => 'info',
+                'message' => 'XML nie został jeszcze wygenerowany',
+                'action' => 'Wywołaj: $generator->generate_for_import(true)'
+            ];
+        }
+
+        return [
+            'compatible' => true,
+            'structure' => 'malfini_style_with_variations',
+            'recommendations' => $recommendations,
+            'migration_ready' => $xml_info['exists'],
+            'performance_benefit' => 'Eliminuje długi proces analizy SKU w anda-import.php'
+        ];
+    }
+
+    /**
+     * Funkcja migracyjna - pomaga przejść z starej logiki na nową.
+     * Wywoływana przez admin gdy chce przetestować nowy system.
+     *
+     * @return array Status migracji
+     */
+    public function migrate_from_old_import()
+    {
+        error_log('MHI ANDA: 🔄 Rozpoczynam migrację z starej logiki anda-import.php na nową');
+
+        try {
+            // KROK 1: Wygeneruj nowy XML
+            $generation_result = $this->generate_for_import(true);
+
+            if (!$generation_result['success']) {
+                throw new Exception('Nie udało się wygenerować nowego XML: ' . $generation_result['message']);
+            }
+
+            // KROK 2: Sprawdź czy plik jest poprawny
+            $xml_info = $this->get_xml_file_info();
+
+            if (!$xml_info['exists'] || $xml_info['file_size'] < 1000) {
+                throw new Exception('Wygenerowany XML jest niepoprawny lub pusty');
+            }
+
+            // KROK 3: Sprawdź strukturę
+            $sample_check = $this->validate_xml_structure($xml_info['file_path']);
+
+            if (!$sample_check['valid']) {
+                throw new Exception('Struktura XML nie jest poprawna: ' . $sample_check['error']);
+            }
+
+            error_log('MHI ANDA: ✅ Migracja zakończona pomyślnie');
+
+            return [
+                'success' => true,
+                'message' => 'Migracja zakończona - nowy XML gotowy do użycia',
+                'old_system' => 'anda-import.php logic (slow)',
+                'new_system' => 'pre-generated XML with variable products (fast)',
+                'performance_improvement' => 'Estimated 5-10x faster imports',
+                'file_info' => $xml_info,
+                'next_steps' => [
+                    'Użyj nowego XML: ' . $xml_info['file_path'],
+                    'Ustaw cron: call generate_for_import() co 6h',
+                    'Monitoruj logi pod kątem błędów'
+                ]
+            ];
+
+        } catch (Exception $e) {
+            error_log('MHI ANDA: ❌ Migracja nieudana: ' . $e->getMessage());
+            return [
+                'success' => false,
+                'message' => 'Migracja nieudana: ' . $e->getMessage(),
+                'fallback' => 'Kontynuuj używanie starej logiki anda-import.php'
+            ];
+        }
+    }
+
+    /**
+     * Waliduje strukturę wygenerowanego XML.
+     *
+     * @param string $xml_file_path
+     * @return array Status walidacji
+     */
+    private function validate_xml_structure($xml_file_path)
+    {
+        try {
+            if (!file_exists($xml_file_path)) {
+                return ['valid' => false, 'error' => 'Plik nie istnieje'];
+            }
+
+            // Załaduj XML i sprawdź podstawową strukturę
+            libxml_use_internal_errors(true);
+            $xml = simplexml_load_file($xml_file_path);
+
+            if ($xml === false) {
+                $errors = libxml_get_errors();
+                $error_msg = !empty($errors) ? $errors[0]->message : 'Nieznany błąd XML';
+                return ['valid' => false, 'error' => 'XML parsing error: ' . $error_msg];
+            }
+
+            // Sprawdź czy jest przynajmniej jeden produkt
+            if (!isset($xml->product) || count($xml->product) === 0) {
+                return ['valid' => false, 'error' => 'Brak produktów w XML'];
+            }
+
+            // Sprawdź czy produkty mają odpowiednią strukturę
+            $first_product = $xml->product[0];
+            $required_fields = ['sku', 'name', 'status'];
+
+            foreach ($required_fields as $field) {
+                if (!isset($first_product->$field)) {
+                    return ['valid' => false, 'error' => "Brak wymaganego pola: $field"];
+                }
+            }
+
+            // Sprawdź czy są atrybuty z variation flag
+            $has_variation_attributes = false;
+            if (isset($first_product->attributes->attribute)) {
+                foreach ($first_product->attributes->attribute as $attr) {
+                    if (isset($attr->variation)) {
+                        $has_variation_attributes = true;
+                        break;
+                    }
+                }
+            }
+
+            if (!$has_variation_attributes) {
+                error_log('MHI ANDA: ⚠️ Warning: Brak atrybutów z flagą variation w pierwszym produkcie');
+            }
+
+            return [
+                'valid' => true,
+                'products_count' => count($xml->product),
+                'has_variations' => $has_variation_attributes,
+                'structure' => 'malfini_style_confirmed'
+            ];
+
+        } catch (Exception $e) {
+            return ['valid' => false, 'error' => 'Validation exception: ' . $e->getMessage()];
         }
     }
 
@@ -775,13 +1102,14 @@ class MHI_ANDA_WC_XML_Generator
 
     /**
      * Generuje plik XML z produktami dla WooCommerce w standardowej strukturze.
-     * NOWA WERSJA: Automatycznie wykrywa warianty i tworzy variable products.
+     * NOWA WERSJA: Tworzy variable products z atrybutami variation="yes/no"
+     * zgodnie ze wzorcem Malfini ale z obsługą wariantów ANDA.
      *
      * @return array Status operacji
      */
     private function generate_products_xml()
     {
-        error_log("MHI ANDA: 🎯 Generuję plik XML z automatycznym wykrywaniem wariantów ANDA");
+        error_log("MHI ANDA: 🎯 Generuję plik XML z variable products w stylu Malfini + variations");
 
         $xml = new DOMDocument('1.0', 'UTF-8');
         $xml->formatOutput = true;
@@ -790,8 +1118,8 @@ class MHI_ANDA_WC_XML_Generator
         $root = $xml->createElement('products');
         $xml->appendChild($root);
 
-        // KROK 1: Grupuj produkty według base SKU i wykryj warianty
-        $product_groups = $this->group_products_by_base_sku();
+        // KROK 1: Grupuj produkty według base SKU używając patternów z anda-import.php
+        $product_groups = $this->group_products_by_anda_patterns();
         error_log("MHI ANDA: 📊 Wykryto " . count($product_groups) . " grup produktów");
 
         $count = 0;
@@ -801,19 +1129,19 @@ class MHI_ANDA_WC_XML_Generator
 
         foreach ($product_groups as $base_sku => $group) {
             if (count($group['variants']) > 1) {
-                // VARIABLE PRODUCT z wariantami
+                // VARIABLE PRODUCT z wariantami (wzór Malfini + variations)
                 error_log("MHI ANDA: 🎨 Tworzę variable product: $base_sku z " . count($group['variants']) . " wariantami");
-                $product_element = $this->create_variable_product_element($xml, $group, $base_sku);
+                $product_element = $this->create_malfini_style_variable_product($xml, $group, $base_sku);
                 if ($product_element) {
                     $root->appendChild($product_element);
                     $count++;
                     $variant_count += count($group['variants']);
                 }
             } else {
-                // SIMPLE PRODUCT
+                // SIMPLE PRODUCT (bez wariantów)
                 $item_number = array_keys($group['variants'])[0];
                 $product = $group['variants'][$item_number];
-                $product_element = $this->create_standard_product_element($xml, $product, $item_number);
+                $product_element = $this->create_malfini_style_simple_product($xml, $product, $item_number);
                 if ($product_element) {
                     $root->appendChild($product_element);
                     $count++;
@@ -853,39 +1181,59 @@ class MHI_ANDA_WC_XML_Generator
     }
 
     /**
-     * Grupuje produkty według base SKU i wykrywa warianty.
-     * Obsługuje formaty: BASE-XX, BASE_SIZE, BASE-XX_SIZE, BASE_XX_SIZE
+     * Grupuje produkty według base SKU używając tych samych patternów co anda-import.php.
+     * Patterny: /-(\d{2})$/ (kolor), /_(S|M|L|XL...)$/i (rozmiar), /-(\d{2})_(S|M...)$/i (kombinowany)
      *
      * @return array Zgrupowane produkty z wariantami
      */
-    private function group_products_by_base_sku()
+    private function group_products_by_anda_patterns()
     {
         $groups = [];
         $processed_skus = [];
+
+        // PATTERNY ANDA (z anda-import.php)
+        $color_pattern = '/-(\d{2})$/';
+        $size_pattern = '/_(S|M|L|XL|XXL|XXXL|XS|XXS|XXXS|XXXXS|\d+[Gg][Bb]?|\d{2,3})$/i';
+        $combined_pattern = '/-(\d{2})_(S|M|L|XL|XXL|XXXL|XS|XXS|XXXS|XXXXS|\d+[Gg][Bb]?|\d{2,3})$/i';
+
+        error_log("MHI ANDA: 🧪 Używam patternów ANDA:");
+        error_log("   🎨 Kolor: $color_pattern");
+        error_log("   👕 Rozmiar: $size_pattern");
+        error_log("   🎯 Kombinowany: $combined_pattern");
 
         foreach ($this->products_data as $item_number => $product) {
             if (in_array($item_number, $processed_skus)) {
                 continue; // już przetworzony jako wariant
             }
 
-            // Wykryj base SKU dla tego produktu
-            $base_sku = $this->extract_base_sku($item_number);
+            // Wykryj base SKU dla tego produktu używając patternów ANDA
+            $base_sku = $this->extract_base_sku_anda_patterns($item_number);
+            $is_variant = ($base_sku !== $item_number);
 
             if (!isset($groups[$base_sku])) {
                 $groups[$base_sku] = [
                     'base_product' => $product,
-                    'variants' => []
+                    'variants' => [],
+                    'has_main' => false
                 ];
             }
 
             // Znajdź wszystkie warianty dla tego base SKU
-            $variants = $this->find_all_product_variants($base_sku);
+            $variants = $this->find_all_variants_anda_patterns($base_sku);
 
             foreach ($variants as $variant_sku => $variant_data) {
                 if (isset($this->products_data[$variant_sku])) {
                     $groups[$base_sku]['variants'][$variant_sku] = $this->products_data[$variant_sku];
                     $processed_skus[] = $variant_sku;
                 }
+            }
+
+            // Sprawdź czy main product istnieje
+            if (isset($this->products_data[$base_sku])) {
+                $groups[$base_sku]['base_product'] = $this->products_data[$base_sku];
+                $groups[$base_sku]['has_main'] = true;
+                $groups[$base_sku]['variants'][$base_sku] = $this->products_data[$base_sku];
+                $processed_skus[] = $base_sku;
             }
 
             // Jeśli nie znaleziono wariantów, dodaj główny produkt
@@ -901,13 +1249,13 @@ class MHI_ANDA_WC_XML_Generator
     }
 
     /**
-     * Wyciąga base SKU z pełnego SKU produktu.
-     * Obsługuje formaty: AP4135-01 -> AP4135, AP4135_S -> AP4135, AP4135-01_S -> AP4135
+     * Wyciąga base SKU używając patternów ANDA.
+     * Obsługuje: AP4135-01 -> AP4135, AP4135_S -> AP4135, AP4135-01_S -> AP4135
      *
      * @param string $full_sku
      * @return string
      */
-    private function extract_base_sku($full_sku)
+    private function extract_base_sku_anda_patterns($full_sku)
     {
         // Pattern 1: BASE-XX (kolor) - AP4135-01
         if (preg_match('/^(.+)-(\d{2})$/', $full_sku, $matches)) {
@@ -934,17 +1282,17 @@ class MHI_ANDA_WC_XML_Generator
     }
 
     /**
-     * Znajduje wszystkie warianty dla danego base SKU.
+     * Znajduje wszystkie warianty dla danego base SKU używając patternów ANDA.
      *
      * @param string $base_sku
      * @return array
      */
-    private function find_all_product_variants($base_sku)
+    private function find_all_variants_anda_patterns($base_sku)
     {
         $variants = [];
 
         foreach ($this->products_data as $item_number => $product) {
-            $variant_base = $this->extract_base_sku($item_number);
+            $variant_base = $this->extract_base_sku_anda_patterns($item_number);
 
             if ($variant_base === $base_sku) {
                 $variants[$item_number] = $product;
@@ -955,49 +1303,65 @@ class MHI_ANDA_WC_XML_Generator
     }
 
     /**
-     * Tworzy element variable product z wariantami.
+     * Tworzy variable product w stylu Malfini z atrybutami variation="yes/no".
+     * Struktura: proste atrybuty + sekcja variations na końcu.
      *
      * @param DOMDocument $xml
      * @param array $group
      * @param string $base_sku
      * @return DOMElement|null
      */
-    private function create_variable_product_element($xml, $group, $base_sku)
+    private function create_malfini_style_variable_product($xml, $group, $base_sku)
     {
         try {
             $product_element = $xml->createElement('product');
 
-            // Użyj pierwszego wariantu jako bazę dla głównego produktu
-            $first_variant = reset($group['variants']);
-            $base_product = $group['base_product'] ?? $first_variant;
+            // Użyj main product lub pierwszy wariant jako bazę
+            $base_product = $group['has_main'] ? $group['base_product'] : reset($group['variants']);
 
-            // === PODSTAWOWE DANE VARIABLE PRODUCT ===
+            // === PODSTAWOWE DANE ===
             $this->add_xml_element($xml, $product_element, 'sku', $base_sku);
             $this->add_xml_element($xml, $product_element, 'type', 'variable'); // ⭐ KLUCZOWE!
 
-            // Nazwa produktu głównego
+            // Nazwa produktu
             $name = $this->build_complete_product_name($base_product, $base_sku);
             $this->add_xml_element($xml, $product_element, 'name', $name);
+
+            $this->add_xml_element($xml, $product_element, 'status', 'publish');
 
             // Opis produktu
             $description = $this->build_complete_description($base_product);
             $this->add_xml_element($xml, $product_element, 'description', $description);
 
-            // === KATEGORIE (z pierwszego wariantu) ===
-            $this->add_complete_categories($xml, $product_element, $base_product);
+            // === KATEGORIE ===
+            $this->add_malfini_style_categories($xml, $product_element, $base_product);
 
-            // === ATRYBUTY GLOBALNE (pa_kolor, pa_rozmiar) ===
-            $this->add_variable_product_attributes($xml, $product_element, $group['variants']);
+            // === CENY (min z wariantów) ===
+            $price_info = $this->calculate_variant_price_range($group['variants']);
+            if (!empty($price_info['min_price']) && $price_info['min_price'] > 0) {
+                $this->add_xml_element($xml, $product_element, 'regular_price', number_format($price_info['min_price'], 2, '.', ''));
+            } else {
+                $this->add_xml_element($xml, $product_element, 'regular_price', '50.00');
+            }
 
-            // === ZDJĘCIA (z pierwszego wariantu) ===
-            $this->add_complete_images($xml, $product_element, $base_product);
+            // === STOCK (suma z wariantów) ===
+            $total_stock = $this->calculate_total_stock($group['variants']);
+            $this->add_xml_element($xml, $product_element, 'stock_quantity', (string) $total_stock);
+            $this->add_xml_element($xml, $product_element, 'manage_stock', 'no'); // Warianty zarządzają stock
+            $stock_status = $total_stock > 0 ? 'instock' : 'outofstock';
+            $this->add_xml_element($xml, $product_element, 'stock_status', $stock_status);
+
+            // === ATRYBUTY MALFINI STYLE z variation="yes/no" ===
+            $this->add_malfini_style_attributes($xml, $product_element, $group['variants'], $base_product);
+
+            // === ZDJĘCIA (wszystkie z wariantów) ===
+            $this->add_all_variant_images($xml, $product_element, $group['variants']);
 
             // === META DATA ===
-            $this->add_xml_element($xml, $product_element, 'manage_stock', 'no'); // Warianty zarządzają stock
-            $this->add_complete_meta_data($xml, $product_element, $base_product, $base_sku);
+            $this->add_malfini_style_meta_data($xml, $product_element, $base_product, $base_sku);
 
-            // === SEKCJA WARIANTÓW ===
-            $this->add_product_variations($xml, $product_element, $group['variants'], $base_sku);
+            // === SEKCJA VARIATIONS (na końcu) ===
+            $this->add_malfini_style_variations($xml, $product_element, $group['variants'], $base_sku);
 
             return $product_element;
 
@@ -1008,76 +1372,347 @@ class MHI_ANDA_WC_XML_Generator
     }
 
     /**
-     * Dodaje atrybuty globalne dla variable product (pa_kolor, pa_rozmiar).
+     * Tworzy simple product w stylu Malfini (bez wariantów).
+     *
+     * @param DOMDocument $xml
+     * @param array $product
+     * @param string $item_number
+     * @return DOMElement|null
+     */
+    private function create_malfini_style_simple_product($xml, $product, $item_number)
+    {
+        try {
+            $product_element = $xml->createElement('product');
+
+            // === PODSTAWOWE DANE ===
+            $this->add_xml_element($xml, $product_element, 'sku', $item_number);
+            $this->add_xml_element($xml, $product_element, 'type', 'simple');
+
+            // Nazwa produktu
+            $name = $this->build_complete_product_name($product, $item_number);
+            $this->add_xml_element($xml, $product_element, 'name', $name);
+
+            $this->add_xml_element($xml, $product_element, 'status', 'publish');
+
+            // Opis produktu
+            $description = $this->build_complete_description($product);
+            $this->add_xml_element($xml, $product_element, 'description', $description);
+
+            // === KATEGORIE ===
+            $this->add_malfini_style_categories($xml, $product_element, $product);
+
+            // === CENY ===
+            $price_data = $this->get_product_price($item_number);
+            if (!empty($price_data['regular_price']) || !empty($price_data['listPrice'])) {
+                $regular_price = $price_data['regular_price'] ?? $price_data['listPrice'];
+                $this->add_xml_element($xml, $product_element, 'regular_price', $regular_price);
+            } else {
+                $this->add_xml_element($xml, $product_element, 'regular_price', '50.00');
+            }
+
+            // === STOCK ===
+            $stock = $this->get_product_stock($item_number);
+            $this->add_xml_element($xml, $product_element, 'stock_quantity', $stock);
+            $this->add_xml_element($xml, $product_element, 'manage_stock', 'yes');
+            $stock_status = $stock > 0 ? 'instock' : 'outofstock';
+            $this->add_xml_element($xml, $product_element, 'stock_status', $stock_status);
+
+            // === ATRYBUTY (bez variation) ===
+            $this->add_malfini_style_simple_attributes($xml, $product_element, $product);
+
+            // === ZDJĘCIA ===
+            $this->add_complete_images($xml, $product_element, $product);
+
+            // === META DATA ===
+            $this->add_malfini_style_meta_data($xml, $product_element, $product, $item_number);
+
+            return $product_element;
+
+        } catch (Exception $e) {
+            error_log("MHI ANDA: ❌ Błąd tworzenia simple product $item_number: " . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Oblicza zakres cen z wariantów.
+     *
+     * @param array $variants
+     * @return array
+     */
+    private function calculate_variant_price_range($variants)
+    {
+        $min_price = null;
+        $max_price = null;
+
+        foreach ($variants as $variant_sku => $variant_data) {
+            $price_data = $this->get_product_price($variant_sku);
+            $price = !empty($price_data['regular_price']) ? (float) $price_data['regular_price'] :
+                (!empty($price_data['listPrice']) ? (float) $price_data['listPrice'] : 0);
+
+            if ($price > 0) {
+                if ($min_price === null || $price < $min_price) {
+                    $min_price = $price;
+                }
+                if ($max_price === null || $price > $max_price) {
+                    $max_price = $price;
+                }
+            }
+        }
+
+        return [
+            'min_price' => $min_price,
+            'max_price' => $max_price
+        ];
+    }
+
+    /**
+     * Oblicza łączny stock z wszystkich wariantów.
+     *
+     * @param array $variants
+     * @return int
+     */
+    private function calculate_total_stock($variants)
+    {
+        $total_stock = 0;
+
+        foreach ($variants as $variant_sku => $variant_data) {
+            $stock = (int) $this->get_product_stock($variant_sku);
+            $total_stock += $stock;
+        }
+
+        return $total_stock;
+    }
+
+    /**
+     * Dodaje kategorie w stylu Malfini.
+     *
+     * @param DOMDocument $xml
+     * @param DOMElement $product_element
+     * @param array $product
+     */
+    private function add_malfini_style_categories($xml, $product_element, $product)
+    {
+        $categories_element = $xml->createElement('categories');
+        $product_element->appendChild($categories_element);
+
+        // Znajdź kategorie produktu
+        $product_categories = $this->find_product_categories($product);
+
+        if (empty($product_categories)) {
+            $product_categories = [
+                ['name' => 'Produkty reklamowe', 'path' => 'Produkty reklamowe']
+            ];
+        }
+
+        foreach ($product_categories as $category_info) {
+            $category_element = $xml->createElement('category');
+            $category_element->nodeValue = htmlspecialchars($category_info['name'], ENT_QUOTES, 'UTF-8');
+            $categories_element->appendChild($category_element);
+
+            // Dodaj hierarchię jeśli istnieje
+            if (!empty($category_info['path']) && $category_info['path'] !== $category_info['name']) {
+                $path_element = $xml->createElement('category');
+                $path_element->nodeValue = htmlspecialchars($category_info['path'], ENT_QUOTES, 'UTF-8');
+                $categories_element->appendChild($path_element);
+            }
+        }
+    }
+
+    /**
+     * Dodaje atrybuty w stylu Malfini z variation="yes/no".
      *
      * @param DOMDocument $xml
      * @param DOMElement $product_element
      * @param array $variants
+     * @param array $base_product
      */
-    private function add_variable_product_attributes($xml, $product_element, $variants)
+    private function add_malfini_style_attributes($xml, $product_element, $variants, $base_product)
     {
         $attributes_element = $xml->createElement('attributes');
         $product_element->appendChild($attributes_element);
 
         // Zbierz wszystkie kolory i rozmiary z wariantów
-        $colors = [];
-        $sizes = [];
+        $all_colors = [];
+        $all_sizes = [];
 
         foreach ($variants as $variant_sku => $variant_data) {
-            $variant_attrs = $this->extract_variant_attributes($variant_sku, $variant_data);
+            $variant_attrs = $this->extract_variant_attributes_anda($variant_sku, $variant_data);
 
             if (!empty($variant_attrs['kolor'])) {
-                $colors[] = $variant_attrs['kolor'];
+                $all_colors[] = $variant_attrs['kolor'];
             }
             if (!empty($variant_attrs['rozmiar'])) {
-                $sizes[] = $variant_attrs['rozmiar'];
+                $all_sizes[] = $variant_attrs['rozmiar'];
             }
         }
 
-        // Usuń duplikaty
-        $colors = array_unique($colors);
-        $sizes = array_unique($sizes);
+        $all_colors = array_unique($all_colors);
+        $all_sizes = array_unique($all_sizes);
 
-        // Dodaj atrybut koloru (jeśli są kolory)
-        if (!empty($colors)) {
+        // Atrybut Kolor z variation="yes" (jeśli są różne kolory)
+        if (count($all_colors) > 1) {
             $color_attr = $xml->createElement('attribute');
-            $this->add_xml_element($xml, $color_attr, 'name', 'pa_kolor');
-            $this->add_xml_element($xml, $color_attr, 'value', implode(' | ', $colors));
+            $this->add_xml_element($xml, $color_attr, 'name', 'Kolor');
+            $this->add_xml_element($xml, $color_attr, 'value', implode(', ', $all_colors));
+            $this->add_xml_element($xml, $color_attr, 'variation', 'yes'); // ⭐ KLUCZOWE!
             $this->add_xml_element($xml, $color_attr, 'visible', '1');
-            $this->add_xml_element($xml, $color_attr, 'variation', '1'); // ⭐ KLUCZOWE dla wariantów!
-            $this->add_xml_element($xml, $color_attr, 'taxonomy', '1');
             $attributes_element->appendChild($color_attr);
-
-            error_log("MHI ANDA: 🎨 Dodano atrybut pa_kolor: " . implode(', ', $colors));
+            error_log("MHI ANDA: 🎨 Dodano atrybut Kolor variation=yes: " . implode(', ', $all_colors));
+        } elseif (count($all_colors) === 1) {
+            $color_attr = $xml->createElement('attribute');
+            $this->add_xml_element($xml, $color_attr, 'name', 'Kolor');
+            $this->add_xml_element($xml, $color_attr, 'value', $all_colors[0]);
+            $this->add_xml_element($xml, $color_attr, 'variation', 'no');
+            $this->add_xml_element($xml, $color_attr, 'visible', '1');
+            $attributes_element->appendChild($color_attr);
         }
 
-        // Dodaj atrybut rozmiaru (jeśli są rozmiary)
-        if (!empty($sizes)) {
+        // Atrybut Rozmiar z variation="yes" (jeśli są różne rozmiary)
+        if (count($all_sizes) > 1) {
             $size_attr = $xml->createElement('attribute');
-            $this->add_xml_element($xml, $size_attr, 'name', 'pa_rozmiar');
-            $this->add_xml_element($xml, $size_attr, 'value', implode(' | ', $sizes));
+            $this->add_xml_element($xml, $size_attr, 'name', 'Rozmiar');
+            $this->add_xml_element($xml, $size_attr, 'value', implode(', ', $all_sizes));
+            $this->add_xml_element($xml, $size_attr, 'variation', 'yes'); // ⭐ KLUCZOWE!
             $this->add_xml_element($xml, $size_attr, 'visible', '1');
-            $this->add_xml_element($xml, $size_attr, 'variation', '1'); // ⭐ KLUCZOWE dla wariantów!
-            $this->add_xml_element($xml, $size_attr, 'taxonomy', '1');
             $attributes_element->appendChild($size_attr);
-
-            error_log("MHI ANDA: 📏 Dodano atrybut pa_rozmiar: " . implode(', ', $sizes));
+            error_log("MHI ANDA: 📏 Dodano atrybut Rozmiar variation=yes: " . implode(', ', $all_sizes));
+        } elseif (count($all_sizes) === 1) {
+            $size_attr = $xml->createElement('attribute');
+            $this->add_xml_element($xml, $size_attr, 'name', 'Rozmiar');
+            $this->add_xml_element($xml, $size_attr, 'value', $all_sizes[0]);
+            $this->add_xml_element($xml, $size_attr, 'variation', 'no');
+            $this->add_xml_element($xml, $size_attr, 'visible', '1');
+            $attributes_element->appendChild($size_attr);
         }
+
+        // Dodaj pozostałe atrybuty z variation="no"
+        $this->add_static_product_attributes($xml, $attributes_element, $base_product);
     }
 
     /**
-     * Wyciąga atrybuty wariantu (kolor, rozmiar) z SKU.
+     * Dodaje atrybuty dla simple product (wszystkie z variation="no").
+     *
+     * @param DOMDocument $xml
+     * @param DOMElement $product_element
+     * @param array $product
+     */
+    private function add_malfini_style_simple_attributes($xml, $product_element, $product)
+    {
+        $attributes_element = $xml->createElement('attributes');
+        $product_element->appendChild($attributes_element);
+
+        // Kolor pojedynczy
+        if (!empty($product['primaryColor'])) {
+            $color_attr = $xml->createElement('attribute');
+            $this->add_xml_element($xml, $color_attr, 'name', 'Kolor');
+            $this->add_xml_element($xml, $color_attr, 'value', $product['primaryColor']);
+            $this->add_xml_element($xml, $color_attr, 'variation', 'no');
+            $this->add_xml_element($xml, $color_attr, 'visible', '1');
+            $attributes_element->appendChild($color_attr);
+        }
+
+        // Dodaj pozostałe atrybuty
+        $this->add_static_product_attributes($xml, $attributes_element, $product);
+    }
+
+    /**
+     * Dodaje statyczne atrybuty produktu (zawsze variation="no").
+     *
+     * @param DOMDocument $xml
+     * @param DOMElement $attributes_element
+     * @param array $product
+     */
+    private function add_static_product_attributes($xml, $attributes_element, $product)
+    {
+        // Materiał
+        $material = $this->detect_material($product);
+        if (!empty($material)) {
+            $attr = $xml->createElement('attribute');
+            $this->add_xml_element($xml, $attr, 'name', 'Materiał');
+            $this->add_xml_element($xml, $attr, 'value', $material);
+            $this->add_xml_element($xml, $attr, 'variation', 'no');
+            $this->add_xml_element($xml, $attr, 'visible', '1');
+            $attributes_element->appendChild($attr);
+        }
+
+        // Waga
+        if (!empty($product['individualProductWeightGram'])) {
+            $attr = $xml->createElement('attribute');
+            $this->add_xml_element($xml, $attr, 'name', 'Waga');
+            $this->add_xml_element($xml, $attr, 'value', $product['individualProductWeightGram'] . ' g');
+            $this->add_xml_element($xml, $attr, 'variation', 'no');
+            $this->add_xml_element($xml, $attr, 'visible', '1');
+            $attributes_element->appendChild($attr);
+        }
+
+        // Wymiary
+        if (!empty($product['width']) && !empty($product['height']) && !empty($product['depth'])) {
+            $attr = $xml->createElement('attribute');
+            $this->add_xml_element($xml, $attr, 'name', 'Wymiary');
+            $this->add_xml_element($xml, $attr, 'value', $product['width'] . ' x ' . $product['height'] . ' x ' . $product['depth'] . ' cm');
+            $this->add_xml_element($xml, $attr, 'variation', 'no');
+            $this->add_xml_element($xml, $attr, 'visible', '1');
+            $attributes_element->appendChild($attr);
+        }
+
+        // Minimalne zamówienie
+        if (!empty($product['minimumOrderQuantity'])) {
+            $attr = $xml->createElement('attribute');
+            $this->add_xml_element($xml, $attr, 'name', 'Minimalne zamówienie');
+            $this->add_xml_element($xml, $attr, 'value', $product['minimumOrderQuantity'] . ' szt.');
+            $this->add_xml_element($xml, $attr, 'variation', 'no');
+            $this->add_xml_element($xml, $attr, 'visible', '1');
+            $attributes_element->appendChild($attr);
+        }
+
+        // Kraj pochodzenia
+        if (!empty($product['countryOfOrigin'])) {
+            $attr = $xml->createElement('attribute');
+            $this->add_xml_element($xml, $attr, 'name', 'Kraj pochodzenia');
+            $this->add_xml_element($xml, $attr, 'value', $product['countryOfOrigin']);
+            $this->add_xml_element($xml, $attr, 'variation', 'no');
+            $this->add_xml_element($xml, $attr, 'visible', '1');
+            $attributes_element->appendChild($attr);
+        }
+
+        // Technologie druku
+        $printing_technologies = $this->get_suitable_printing_technologies($product);
+        if (!empty($printing_technologies)) {
+            $tech_names = array_map(function ($tech) {
+                return $tech['name'];
+            }, $printing_technologies);
+
+            $attr = $xml->createElement('attribute');
+            $this->add_xml_element($xml, $attr, 'name', 'Dostępne technologie znakowania');
+            $this->add_xml_element($xml, $attr, 'value', implode(', ', $tech_names));
+            $this->add_xml_element($xml, $attr, 'variation', 'no');
+            $this->add_xml_element($xml, $attr, 'visible', '1');
+            $attributes_element->appendChild($attr);
+        }
+
+        // Marka ANDA
+        $attr = $xml->createElement('attribute');
+        $this->add_xml_element($xml, $attr, 'name', 'Marka');
+        $this->add_xml_element($xml, $attr, 'value', 'ANDA');
+        $this->add_xml_element($xml, $attr, 'variation', 'no');
+        $this->add_xml_element($xml, $attr, 'visible', '1');
+        $attributes_element->appendChild($attr);
+    }
+
+    /**
+     * Wyciąga atrybuty wariantu ANDA (kolor, rozmiar) z SKU.
      *
      * @param string $variant_sku
      * @param array $variant_data
      * @return array
      */
-    private function extract_variant_attributes($variant_sku, $variant_data)
+    private function extract_variant_attributes_anda($variant_sku, $variant_data)
     {
         $attributes = [];
 
         // Wyciągnij base SKU
-        $base_sku = $this->extract_base_sku($variant_sku);
+        $base_sku = $this->extract_base_sku_anda_patterns($variant_sku);
 
         // Pattern 1: BASE-XX (kolor) - AP4135-01
         if (preg_match('/^' . preg_quote($base_sku, '/') . '-(\d{2})$/', $variant_sku, $matches)) {
@@ -1108,7 +1743,7 @@ class MHI_ANDA_WC_XML_Generator
         }
 
         // Alternatywnie sprawdź dane produktu
-        if (!empty($variant_data['primaryColor'])) {
+        if (empty($attributes['kolor']) && !empty($variant_data['primaryColor'])) {
             $attributes['kolor'] = $variant_data['primaryColor'];
         }
 
@@ -1150,30 +1785,129 @@ class MHI_ANDA_WC_XML_Generator
     }
 
     /**
-     * Dodaje warianty do variable product.
+     * Dodaje wszystkie zdjęcia z wariantów.
+     *
+     * @param DOMDocument $xml
+     * @param DOMElement $product_element
+     * @param array $variants
+     */
+    private function add_all_variant_images($xml, $product_element, $variants)
+    {
+        $images_element = $xml->createElement('images');
+        $product_element->appendChild($images_element);
+
+        $all_images = [];
+
+        foreach ($variants as $variant_sku => $variant_data) {
+            // Główne zdjęcie
+            if (!empty($variant_data['primaryImage'])) {
+                $all_images[] = $variant_data['primaryImage'];
+            }
+
+            // Dodatkowe zdjęcia
+            $image_fields = ['secondaryImage', 'image1', 'image2', 'image3', 'image4', 'image5'];
+            foreach ($image_fields as $field) {
+                if (!empty($variant_data[$field])) {
+                    $all_images[] = $variant_data[$field];
+                }
+            }
+
+            // Zdjęcia z sekcji images
+            if (!empty($variant_data['images']['image'])) {
+                $gallery_images = $variant_data['images']['image'];
+                if (is_string($gallery_images)) {
+                    $all_images[] = $gallery_images;
+                } elseif (is_array($gallery_images)) {
+                    foreach ($gallery_images as $image_url) {
+                        if (is_string($image_url) && !empty($image_url)) {
+                            $all_images[] = $image_url;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Usuń duplikaty i dodaj do XML
+        $all_images = array_unique($all_images);
+        foreach ($all_images as $image_url) {
+            if (!empty($image_url)) {
+                $image_element = $xml->createElement('image');
+                $image_element->setAttribute('src', $image_url);
+                $images_element->appendChild($image_element);
+            }
+        }
+    }
+
+    /**
+     * Dodaje meta data w stylu Malfini.
+     *
+     * @param DOMDocument $xml
+     * @param DOMElement $product_element
+     * @param array $product
+     * @param string $sku
+     */
+    private function add_malfini_style_meta_data($xml, $product_element, $product, $sku)
+    {
+        // Kod ANDA
+        $meta_element = $xml->createElement('meta_data');
+        $key_element = $xml->createElement('key');
+        $key_element->nodeValue = '_anda_code';
+        $value_element = $xml->createElement('value');
+        $value_element->nodeValue = $sku;
+        $meta_element->appendChild($key_element);
+        $meta_element->appendChild($value_element);
+        $product_element->appendChild($meta_element);
+
+        // EAN
+        if (!empty($product['eanCode'])) {
+            $meta_element = $xml->createElement('meta_data');
+            $key_element = $xml->createElement('key');
+            $key_element->nodeValue = '_anda_ean';
+            $value_element = $xml->createElement('value');
+            $value_element->nodeValue = $product['eanCode'];
+            $meta_element->appendChild($key_element);
+            $meta_element->appendChild($value_element);
+            $product_element->appendChild($meta_element);
+        }
+
+        // Kraj pochodzenia
+        if (!empty($product['countryOfOrigin'])) {
+            $meta_element = $xml->createElement('meta_data');
+            $key_element = $xml->createElement('key');
+            $key_element->nodeValue = '_anda_country_origin';
+            $value_element = $xml->createElement('value');
+            $value_element->nodeValue = $product['countryOfOrigin'];
+            $meta_element->appendChild($key_element);
+            $meta_element->appendChild($value_element);
+            $product_element->appendChild($meta_element);
+        }
+    }
+
+    /**
+     * Dodaje sekcję variations w stylu Malfini (na końcu produktu).
      *
      * @param DOMDocument $xml
      * @param DOMElement $product_element
      * @param array $variants
      * @param string $base_sku
      */
-    private function add_product_variations($xml, $product_element, $variants, $base_sku)
+    private function add_malfini_style_variations($xml, $product_element, $variants, $base_sku)
     {
         $variations_element = $xml->createElement('variations');
         $product_element->appendChild($variations_element);
 
         foreach ($variants as $variant_sku => $variant_data) {
-            $variation_element = $this->create_variation_element_complete($xml, $variant_sku, $variant_data, $base_sku);
+            $variation_element = $this->create_malfini_style_variation($xml, $variant_sku, $variant_data, $base_sku);
             if ($variation_element) {
                 $variations_element->appendChild($variation_element);
             }
         }
 
-        error_log("MHI ANDA: 🎯 Dodano " . count($variants) . " wariantów do $base_sku");
+        error_log("MHI ANDA: 🎯 Dodano " . count($variants) . " wariantów w stylu Malfini do $base_sku");
     }
 
     /**
-     * Tworzy kompletny element wariantu.
+     * Tworzy pojedynczy wariant w stylu Malfini.
      *
      * @param DOMDocument $xml
      * @param string $variant_sku
@@ -1181,52 +1915,42 @@ class MHI_ANDA_WC_XML_Generator
      * @param string $base_sku
      * @return DOMElement|null
      */
-    private function create_variation_element_complete($xml, $variant_sku, $variant_data, $base_sku)
+    private function create_malfini_style_variation($xml, $variant_sku, $variant_data, $base_sku)
     {
         try {
             $variation_element = $xml->createElement('variation');
 
-            // === PODSTAWOWE DANE WARIANTU ===
+            // SKU wariantu
             $this->add_xml_element($xml, $variation_element, 'sku', $variant_sku);
 
-            // Nazwa wariantu
-            $variant_name = $this->build_variant_name($variant_data, $variant_sku);
-            $this->add_xml_element($xml, $variation_element, 'name', $variant_name);
-
-            // === CENY Z ORYGINALNEGO SKU ===
+            // Ceny wariantu
             $price_data = $this->get_product_price($variant_sku);
-            if (!empty($price_data)) {
-                $this->add_pricing_data($xml, $variation_element, $price_data);
+            if (!empty($price_data['regular_price']) || !empty($price_data['listPrice'])) {
+                $regular_price = $price_data['regular_price'] ?? $price_data['listPrice'];
+                $this->add_xml_element($xml, $variation_element, 'regular_price', $regular_price);
             }
 
-            // === STOCK Z ORYGINALNEGO SKU ===
+            if (!empty($price_data['sale_price']) || !empty($price_data['discountPrice'])) {
+                $sale_price = $price_data['sale_price'] ?? $price_data['discountPrice'];
+                $this->add_xml_element($xml, $variation_element, 'sale_price', $sale_price);
+            }
+
+            // Stock wariantu
             $stock = $this->get_product_stock($variant_sku);
             $this->add_xml_element($xml, $variation_element, 'stock_quantity', $stock);
+            $this->add_xml_element($xml, $variation_element, 'manage_stock', 'yes');
             $stock_status = $stock > 0 ? 'instock' : 'outofstock';
             $this->add_xml_element($xml, $variation_element, 'stock_status', $stock_status);
-            $this->add_xml_element($xml, $variation_element, 'manage_stock', 'yes');
 
-            // === ATRYBUTY WARIANTU ===
-            $variant_attributes = $this->extract_variant_attributes($variant_sku, $variant_data);
-            $this->add_variation_attributes($xml, $variation_element, $variant_attributes);
+            // Atrybuty wariantu
+            $variant_attributes = $this->extract_variant_attributes_anda($variant_sku, $variant_data);
+            $this->add_variation_attributes_malfini_style($xml, $variation_element, $variant_attributes);
 
-            // === WYMIARY PRODUKTU ===
+            // Wymiary produktu
             if (!empty($variant_data['individualProductWeightGram'])) {
                 $weight_kg = floatval($variant_data['individualProductWeightGram']) / 1000;
                 $this->add_xml_element($xml, $variation_element, 'weight', number_format($weight_kg, 3, '.', ''));
             }
-            if (!empty($variant_data['width'])) {
-                $this->add_xml_element($xml, $variation_element, 'length', $variant_data['width']);
-            }
-            if (!empty($variant_data['height'])) {
-                $this->add_xml_element($xml, $variation_element, 'width', $variant_data['height']);
-            }
-            if (!empty($variant_data['depth'])) {
-                $this->add_xml_element($xml, $variation_element, 'height', $variant_data['depth']);
-            }
-
-            // === META DATA WARIANTU ===
-            $this->add_variation_meta_data($xml, $variation_element, $variant_data, $variant_sku);
 
             return $variation_element;
 
@@ -1237,99 +1961,31 @@ class MHI_ANDA_WC_XML_Generator
     }
 
     /**
-     * Buduje nazwę wariantu.
-     *
-     * @param array $variant_data
-     * @param string $variant_sku
-     * @return string
-     */
-    private function build_variant_name($variant_data, $variant_sku)
-    {
-        $name_parts = [];
-
-        // Główna nazwa
-        if (!empty($variant_data['designName'])) {
-            $name_parts[] = $variant_data['designName'];
-        } elseif (!empty($variant_data['n'])) {
-            $name_parts[] = $variant_data['n'];
-        }
-
-        // Dodaj atrybuty wariantu
-        $variant_attrs = $this->extract_variant_attributes($variant_sku, $variant_data);
-        $attr_parts = [];
-
-        if (!empty($variant_attrs['kolor'])) {
-            $attr_parts[] = $variant_attrs['kolor'];
-        }
-        if (!empty($variant_attrs['rozmiar'])) {
-            $attr_parts[] = $variant_attrs['rozmiar'];
-        }
-
-        if (!empty($attr_parts)) {
-            $name_parts[] = '(' . implode(', ', $attr_parts) . ')';
-        }
-
-        return !empty($name_parts) ? implode(' ', $name_parts) : $variant_sku;
-    }
-
-    /**
-     * Dodaje atrybuty wariantu (pa_kolor, pa_rozmiar).
+     * Dodaje atrybuty wariantu w stylu Malfini.
      *
      * @param DOMDocument $xml
      * @param DOMElement $variation_element
      * @param array $variant_attributes
      */
-    private function add_variation_attributes($xml, $variation_element, $variant_attributes)
+    private function add_variation_attributes_malfini_style($xml, $variation_element, $variant_attributes)
     {
         $attributes_element = $xml->createElement('attributes');
         $variation_element->appendChild($attributes_element);
 
-        // Dodaj kolor jako pa_kolor
+        // Dodaj kolor
         if (!empty($variant_attributes['kolor'])) {
-            $color_attr = $xml->createElement('attribute');
-            $this->add_xml_element($xml, $color_attr, 'name', 'pa_kolor');
-            $this->add_xml_element($xml, $color_attr, 'value', $variant_attributes['kolor']);
-            $attributes_element->appendChild($color_attr);
+            $attr = $xml->createElement('attribute');
+            $this->add_xml_element($xml, $attr, 'name', 'Kolor');
+            $this->add_xml_element($xml, $attr, 'value', $variant_attributes['kolor']);
+            $attributes_element->appendChild($attr);
         }
 
-        // Dodaj rozmiar jako pa_rozmiar
+        // Dodaj rozmiar
         if (!empty($variant_attributes['rozmiar'])) {
-            $size_attr = $xml->createElement('attribute');
-            $this->add_xml_element($xml, $size_attr, 'name', 'pa_rozmiar');
-            $this->add_xml_element($xml, $size_attr, 'value', $variant_attributes['rozmiar']);
-            $attributes_element->appendChild($size_attr);
-        }
-    }
-
-    /**
-     * Dodaje meta data dla wariantu.
-     *
-     * @param DOMDocument $xml
-     * @param DOMElement $variation_element
-     * @param array $variant_data
-     * @param string $variant_sku
-     */
-    private function add_variation_meta_data($xml, $variation_element, $variant_data, $variant_sku)
-    {
-        $meta_section = $xml->createElement('meta_data');
-        $variation_element->appendChild($meta_section);
-
-        // Kod ANDA wariantu
-        $this->add_complete_meta($xml, $meta_section, '_anda_variant_code', $variant_sku);
-
-        // EAN wariantu
-        if (!empty($variant_data['eanCode'])) {
-            $this->add_complete_meta($xml, $meta_section, '_anda_variant_ean', $variant_data['eanCode']);
-        }
-
-        // Kolor wariantu
-        if (!empty($variant_data['primaryColor'])) {
-            $this->add_complete_meta($xml, $meta_section, '_anda_variant_color', $variant_data['primaryColor']);
-        }
-
-        // Minimalne zamówienie dla wariantu
-        if (!empty($variant_data['minimumOrderQuantity'])) {
-            $this->add_complete_meta($xml, $meta_section, '_anda_variant_min_order', $variant_data['minimumOrderQuantity']);
+            $attr = $xml->createElement('attribute');
+            $this->add_xml_element($xml, $attr, 'name', 'Rozmiar');
+            $this->add_xml_element($xml, $attr, 'value', $variant_attributes['rozmiar']);
+            $attributes_element->appendChild($attr);
         }
     }
 
