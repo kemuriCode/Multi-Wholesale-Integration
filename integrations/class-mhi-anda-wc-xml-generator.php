@@ -2170,15 +2170,17 @@ class MHI_ANDA_WC_XML_Generator
             $price_data = $this->get_product_price($item_number);
             if (!empty($price_data)) {
                 $this->add_pricing_data($xml, $product_element, $price_data);
+                error_log("MHI ANDA: ✅ Dodano ceny dla produktu $item_number: " . print_r($price_data, true));
             } else {
                 // Jeśli brak ceny, ustaw podstawową cenę z produktu lub 0
                 $fallback_price = !empty($product['listPrice']) ? $product['listPrice'] : '0';
                 $this->add_xml_element($xml, $product_element, 'regular_price', $fallback_price);
-                error_log("MHI ANDA: Używam fallback ceny dla produktu $item_number: $fallback_price");
+                error_log("MHI ANDA: ⚠️ Używam fallback ceny dla produktu $item_number: $fallback_price");
             }
 
             // === KATEGORIE Z PEŁNĄ HIERARCHIĄ ===
             $this->add_complete_categories($xml, $product_element, $product);
+            error_log("MHI ANDA: ✅ Dodano kategorie dla produktu $item_number");
 
             // === KOMPLETNE ATRYBUTY ===
             $this->add_complete_attributes($xml, $product_element, $product, $item_number);
@@ -2243,15 +2245,17 @@ class MHI_ANDA_WC_XML_Generator
             $price_data = $this->get_product_price($item_number);
             if (!empty($price_data)) {
                 $this->add_pricing_data($xml, $product_element, $price_data);
+                error_log("MHI ANDA: ✅ Standardowy - dodano ceny dla produktu $item_number: " . print_r($price_data, true));
             } else {
                 // Fallback - sprawdź cenę w danych produktu
                 $fallback_price = !empty($product['listPrice']) ? $product['listPrice'] : '0';
                 $this->add_xml_element($xml, $product_element, 'regular_price', $fallback_price);
-                error_log("MHI ANDA: Standardowy - używam fallback ceny dla produktu $item_number: $fallback_price");
+                error_log("MHI ANDA: ⚠️ Standardowy - używam fallback ceny dla produktu $item_number: $fallback_price");
             }
 
             // === KATEGORIE Z POPRAWNEGO MAPOWANIA ===
             $this->add_complete_categories($xml, $product_element, $product);
+            error_log("MHI ANDA: ✅ Standardowy - dodano kategorie dla produktu $item_number");
 
             // === KOMPLETNE ATRYBUTY ===
             $this->add_complete_attributes($xml, $product_element, $product, $item_number);
@@ -3155,7 +3159,7 @@ class MHI_ANDA_WC_XML_Generator
         return '';
     }
 
-        /**
+    /**
      * Pobiera cenę produktu z nowej struktury ANDA (prices.xml).
      * POPRAWIONE: Obsługuje tablicę cen dla tego samego itemNumber
      * 
@@ -3169,12 +3173,12 @@ class MHI_ANDA_WC_XML_Generator
         // Przeszukaj wszystkie ceny po itemNumber - teraz to tablica!
         if (!empty($this->prices_data[$item_number])) {
             $price_items = $this->prices_data[$item_number];
-            
+
             // Jeśli to nie tablica, zamień na tablicę
             if (!is_array($price_items) || isset($price_items['type'])) {
                 $price_items = [$price_items];
             }
-            
+
             foreach ($price_items as $price_item) {
                 $type = $price_item['type'] ?? '';
                 $amount = $price_item['amount'] ?? '0';
@@ -3198,7 +3202,7 @@ class MHI_ANDA_WC_XML_Generator
                     if (!is_array($price_entries)) {
                         $price_entries = [$price_entries];
                     }
-                    
+
                     foreach ($price_entries as $price_item) {
                         if (isset($price_item['itemNumber']) && $price_item['itemNumber'] === $item_number) {
                             $type = $price_item['type'] ?? '';
@@ -3433,19 +3437,17 @@ class MHI_ANDA_WC_XML_Generator
     {
         $name_parts = [];
 
-        // Dodaj designName jeśli istnieje
-        if (!empty($product['designName'])) {
-            $name_parts[] = $product['designName'];
-        }
+        // ZGODNIE Z WYMAGANIAMI: <name> + <designName>
+        // Najpierw nazwa przedmiotu, potem nazwa produktu
 
-        // Dodaj główną nazwę produktu
+        // Dodaj główną nazwę produktu (name)
         if (!empty($product['n'])) {
             $name_parts[] = $product['n'];
         }
 
-        // Dodaj informacje o kolorze jeśli są dostępne
-        if (!empty($product['primaryColor'])) {
-            $name_parts[] = '(' . $product['primaryColor'] . ')';
+        // Dodaj designName jeśli istnieje
+        if (!empty($product['designName'])) {
+            $name_parts[] = $product['designName'];
         }
 
         // Jeśli brak nazw, użyj kodu produktu
@@ -3752,9 +3754,35 @@ class MHI_ANDA_WC_XML_Generator
             $this->add_complete_attribute($xml, $attributes_element, 'Waga', $product['individualProductWeightGram'] . ' g');
         }
 
-        // Kolory
+        // === ATRYBUTY ZGODNIE Z WYMAGANIAMI ANDA ===
+
+        // Rozmiar/wymiar produktu - zgodnie z wymaganiami: <name>Rozmiar</name><type>Size</type><value>ø85×155 mm</value>
+        if (!empty($product['width']) && !empty($product['height'])) {
+            $size_value = '';
+            if (!empty($product['depth'])) {
+                $size_value = $product['width'] . '×' . $product['height'] . '×' . $product['depth'] . ' mm';
+            } else {
+                $size_value = $product['width'] . '×' . $product['height'] . ' mm';
+            }
+            $this->add_complete_attribute($xml, $attributes_element, 'Rozmiar', $size_value);
+            error_log("MHI ANDA: ✅ Dodano rozmiar: $size_value");
+        }
+
+        // Kod produktu z końcówką koloru - zgodnie z wymaganiami: <relatedProduct>AP718237-01</relatedProduct>
+        if (!empty($product['itemNumber'])) {
+            $product_code = $product['itemNumber'];
+            // Dodaj informację o kolorze jeśli istnieje (musi być z końcówką która oznacza kolor produktu)
+            if (!empty($product['primaryColor'])) {
+                $product_code .= ' (' . $product['primaryColor'] . ')';
+            }
+            $this->add_complete_attribute($xml, $attributes_element, 'Kod produktu', $product_code);
+            error_log("MHI ANDA: ✅ Dodano kod produktu: $product_code");
+        }
+
+        // Kolor produktu - zgodnie z wymaganiami: <primaryColor>wielokolorowy</primaryColor>
         if (!empty($product['primaryColor'])) {
-            $this->add_complete_attribute($xml, $attributes_element, 'Kolor główny', $product['primaryColor']);
+            $this->add_complete_attribute($xml, $attributes_element, 'Kolor produktu', $product['primaryColor']);
+            error_log("MHI ANDA: ✅ Dodano kolor produktu: " . $product['primaryColor']);
         }
         if (!empty($product['secondaryColor'])) {
             $this->add_complete_attribute($xml, $attributes_element, 'Kolor dodatkowy', $product['secondaryColor']);
@@ -4203,14 +4231,17 @@ class MHI_ANDA_WC_XML_Generator
     {
         $name_parts = [];
 
+        // ZGODNIE Z WYMAGANIAMI: <name> + <designName>
+        // Najpierw nazwa przedmiotu, potem nazwa produktu
+
+        // Dodaj główną nazwę produktu (name)
+        if (!empty($product_data['n'])) {
+            $name_parts[] = $product_data['n'];
+        }
+
         // Dodaj designName jeśli istnieje
         if (!empty($product_data['designName'])) {
             $name_parts[] = $product_data['designName'];
-        }
-
-        // Dodaj główną nazwę produktu
-        if (!empty($product_data['n'])) {
-            $name_parts[] = $product_data['n'];
         }
 
         // Jeśli brak nazw, użyj kodu produktu
@@ -4233,14 +4264,17 @@ class MHI_ANDA_WC_XML_Generator
     {
         $name_parts = [];
 
+        // ZGODNIE Z WYMAGANIAMI: <name> + <designName>
+        // Najpierw nazwa przedmiotu, potem nazwa produktu
+
+        // Dodaj główną nazwę produktu (name)
+        if (!empty($variant_data['n'])) {
+            $name_parts[] = $variant_data['n'];
+        }
+
         // Dodaj designName jeśli istnieje
         if (!empty($variant_data['designName'])) {
             $name_parts[] = $variant_data['designName'];
-        }
-
-        // Dodaj główną nazwę produktu
-        if (!empty($variant_data['n'])) {
-            $name_parts[] = $variant_data['n'];
         }
 
         // Jeśli brak nazw, użyj kodu produktu
