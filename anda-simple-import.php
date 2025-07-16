@@ -233,9 +233,12 @@ $start_time = microtime(true);
         <div class="focus-items">
             <h3>🎯 Co importujemy:</h3>
             <ul>
-                <li>Ceny z meta _anda_price_listPrice</li>
+                <li>Nazwy produktów (name)</li>
+                <li>URL/slugi produktów</li>
+                <li>Ceny (regular_price)</li>
                 <li>Stan magazynowy (stock)</li>
                 <li>Kategorie produktów</li>
+                <li>Atrybuty produktów</li>
             </ul>
         </div>
 
@@ -367,21 +370,39 @@ for ($i = $offset; $i < $end_offset; $i++) {
 
     $changes_made = false;
 
-    // 1. CENA - sprawdź meta _anda_price_listPrice
+    // 1. NAZWA - aktualizuj nazwę produktu
+    $name_updated = anda_simple_update_name($product, $product_xml, $sku, $test_mode);
+    if ($name_updated) {
+        $changes_made = true;
+    }
+
+    // 2. URL - aktualizuj slug/URL
+    $url_updated = anda_simple_update_url($product, $product_xml, $sku, $test_mode);
+    if ($url_updated) {
+        $changes_made = true;
+    }
+
+    // 3. CENA - aktualizuj cenę
     $price_updated = anda_simple_update_price($product, $product_xml, $sku, $test_mode);
     if ($price_updated) {
         $changes_made = true;
     }
 
-    // 2. STOCK - aktualizuj stan magazynowy
+    // 4. STOCK - aktualizuj stan magazynowy
     $stock_updated = anda_simple_update_stock($product, $product_xml, $sku, $test_mode);
     if ($stock_updated) {
         $changes_made = true;
     }
 
-    // 3. KATEGORIE - aktualizuj kategorie
+    // 5. KATEGORIE - aktualizuj kategorie
     $categories_updated = anda_simple_update_categories($product, $product_xml, $sku, $test_mode);
     if ($categories_updated) {
+        $changes_made = true;
+    }
+
+    // 6. ATRYBUTY - aktualizuj atrybuty produktu
+    $attributes_updated = anda_simple_update_attributes($product, $product_xml, $sku, $test_mode);
+    if ($attributes_updated) {
         $changes_made = true;
     }
 
@@ -411,45 +432,7 @@ $execution_time = round($end_time - $start_time, 2);
 echo "<script>addLog('🎉 Ukończono batch! Czas: {$execution_time}s', 'success');</script>";
 flush();
 
-/**
- * Aktualizuje cenę produktu na podstawie meta _anda_price_listPrice
- */
-function anda_simple_update_price($product, $product_xml, $sku, $test_mode = false)
-{
-    $changes_made = false;
 
-    // Szukaj meta _anda_price_listPrice
-    if (isset($product_xml->meta_data)) {
-        foreach ($product_xml->meta_data->meta as $meta) {
-            $key = (string) $meta->key;
-            $value = (string) $meta->value;
-
-            if ($key === '_anda_price_listPrice' && !empty($value)) {
-                $new_price = floatval($value);
-                $current_price = floatval($product->get_regular_price());
-
-                if ($new_price !== $current_price) {
-                    echo "<script>addLog('💰 Cena: $current_price → $new_price PLN ($sku)', 'info');</script>";
-                    flush();
-
-                    if (!$test_mode) {
-                        $product->set_regular_price($new_price);
-                        $product->set_price($new_price);
-                        $product->save();
-                    }
-
-                    $changes_made = true;
-                } else {
-                    echo "<script>addLog('💰 Cena bez zmian: $current_price PLN ($sku)', 'info');</script>";
-                    flush();
-                }
-                break;
-            }
-        }
-    }
-
-    return $changes_made;
-}
 
 /**
  * Aktualizuje stock produktu
@@ -532,6 +515,200 @@ function anda_simple_update_categories($product, $product_xml, $sku, $test_mode 
                 $changes_made = true;
             } else {
                 echo "<script>addLog('📁 Kategorie bez zmian: " . implode(', ', $current_categories) . " ($sku)', 'info');</script>";
+                flush();
+            }
+        }
+    }
+
+    return $changes_made;
+}
+
+/**
+ * Aktualizuje nazwę produktu
+ */
+function anda_simple_update_name($product, $product_xml, $sku, $test_mode = false)
+{
+    $changes_made = false;
+
+    // Pobierz nazwę z XML
+    $new_name = isset($product_xml->name) ? trim((string) $product_xml->name) : '';
+
+    if (!empty($new_name)) {
+        $current_name = $product->get_name();
+
+        if ($new_name !== $current_name) {
+            echo "<script>addLog('📝 Nazwa: \"$current_name\" → \"$new_name\" ($sku)', 'info');</script>";
+            flush();
+
+            if (!$test_mode) {
+                $product->set_name($new_name);
+                $product->save();
+            }
+
+            $changes_made = true;
+        } else {
+            echo "<script>addLog('📝 Nazwa bez zmian: \"$current_name\" ($sku)', 'info');</script>";
+            flush();
+        }
+    }
+
+    return $changes_made;
+}
+
+/**
+ * Aktualizuje URL/slug produktu
+ */
+function anda_simple_update_url($product, $product_xml, $sku, $test_mode = false)
+{
+    $changes_made = false;
+
+    // Pobierz nazwę z XML do wygenerowania slug
+    $new_name = isset($product_xml->name) ? trim((string) $product_xml->name) : '';
+
+    if (!empty($new_name)) {
+        $new_slug = sanitize_title($new_name);
+        $current_slug = $product->get_slug();
+
+        if ($new_slug !== $current_slug) {
+            echo "<script>addLog('🔗 URL: \"$current_slug\" → \"$new_slug\" ($sku)', 'info');</script>";
+            flush();
+
+            if (!$test_mode) {
+                $product->set_slug($new_slug);
+                $product->save();
+            }
+
+            $changes_made = true;
+        } else {
+            echo "<script>addLog('🔗 URL bez zmian: \"$current_slug\" ($sku)', 'info');</script>";
+            flush();
+        }
+    }
+
+    return $changes_made;
+}
+
+/**
+ * Aktualizuje cenę produktu - poprawiona wersja
+ */
+function anda_simple_update_price($product, $product_xml, $sku, $test_mode = false)
+{
+    $changes_made = false;
+
+    // Najpierw sprawdź regular_price z XML
+    $new_price = null;
+    
+    if (isset($product_xml->regular_price) && !empty($product_xml->regular_price)) {
+        $new_price = floatval($product_xml->regular_price);
+    } elseif (isset($product_xml->meta_data)) {
+        // Szukaj meta _anda_price_listPrice jako fallback
+        foreach ($product_xml->meta_data->meta as $meta) {
+            $key = (string) $meta->key;
+            $value = (string) $meta->value;
+
+            if ($key === '_anda_price_listPrice' && !empty($value)) {
+                $new_price = floatval($value);
+                break;
+            }
+        }
+    }
+
+    if ($new_price !== null) {
+        $current_price = floatval($product->get_regular_price());
+
+        if ($new_price !== $current_price) {
+            echo "<script>addLog('💰 Cena: $current_price → $new_price PLN ($sku)', 'info');</script>";
+            flush();
+
+            if (!$test_mode) {
+                $product->set_regular_price($new_price);
+                $product->set_price($new_price);
+                $product->save();
+            }
+
+            $changes_made = true;
+        } else {
+            echo "<script>addLog('💰 Cena bez zmian: $current_price PLN ($sku)', 'info');</script>";
+            flush();
+        }
+    }
+
+    return $changes_made;
+}
+
+/**
+ * Aktualizuje atrybuty produktu
+ */
+function anda_simple_update_attributes($product, $product_xml, $sku, $test_mode = false)
+{
+    $changes_made = false;
+
+    // Pobierz atrybuty z XML
+    if (isset($product_xml->attributes)) {
+        $xml_attributes = [];
+
+        foreach ($product_xml->attributes->attribute as $attribute) {
+            $name = isset($attribute->name) ? trim((string) $attribute->name) : '';
+            $value = isset($attribute->value) ? trim((string) $attribute->value) : '';
+
+            if (!empty($name) && !empty($value)) {
+                $xml_attributes[$name] = $value;
+            }
+        }
+
+        if (!empty($xml_attributes)) {
+            $current_attributes = $product->get_attributes();
+            $attributes_changed = false;
+
+            // Sprawdź czy atrybuty się zmieniły
+            foreach ($xml_attributes as $attr_name => $attr_value) {
+                $attr_exists = false;
+                $attr_changed = false;
+
+                foreach ($current_attributes as $current_attr) {
+                    if ($current_attr->get_name() === $attr_name) {
+                        $attr_exists = true;
+                        $current_values = $current_attr->get_options();
+                        $current_value = is_array($current_values) ? implode(', ', $current_values) : $current_values;
+
+                        if ($current_value !== $attr_value) {
+                            $attr_changed = true;
+                            echo "<script>addLog('🏷️ Atrybut \"$attr_name\": \"$current_value\" → \"$attr_value\" ($sku)', 'info');</script>";
+                            flush();
+                        }
+                        break;
+                    }
+                }
+
+                if (!$attr_exists) {
+                    $attr_changed = true;
+                    echo "<script>addLog('🏷️ Nowy atrybut \"$attr_name\": \"$attr_value\" ($sku)', 'info');</script>";
+                    flush();
+                }
+
+                if ($attr_changed) {
+                    $attributes_changed = true;
+                }
+            }
+
+            if ($attributes_changed && !$test_mode) {
+                // Aktualizuj atrybuty
+                foreach ($xml_attributes as $attr_name => $attr_value) {
+                    $attribute = new WC_Product_Attribute();
+                    $attribute->set_name($attr_name);
+                    $attribute->set_options(array($attr_value));
+                    $attribute->set_position(0);
+                    $attribute->set_visible(true);
+                    $attribute->set_variation(false);
+
+                    $current_attributes[] = $attribute;
+                }
+
+                $product->set_attributes($current_attributes);
+                $product->save();
+                $changes_made = true;
+            } elseif (!$attributes_changed) {
+                echo "<script>addLog('🏷️ Atrybuty bez zmian ($sku)', 'info');</script>";
                 flush();
             }
         }
