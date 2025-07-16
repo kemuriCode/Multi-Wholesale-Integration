@@ -1233,13 +1233,58 @@ $active_tab = isset($_GET['tab']) ? sanitize_text_field($_GET['tab']) : 'general
                                 </p>
                             </div>
                         <?php endif; ?>
+                        <!-- ANDA Manager - Zaawansowany Import -->
+                        <div class="mhi-action-section"
+                            style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #e5e5e5;">
+                            <h3>🔥 <?php _e('ANDA Manager - Zaawansowany Import', 'multi-hurtownie-integration'); ?></h3>
+                            <p><?php _e('Kompleksowy system importu ANDA z automatyczną konwersją na produkty variable, zaawansowanym znajdowaniem wariantów i pełną obsługą atrybutów kolor/rozmiar.', 'multi-hurtownie-integration'); ?>
+                            </p>
+
+                            <div style="background: #e3f2fd; padding: 15px; border-radius: 5px; margin: 15px 0;">
+                                <h4 style="margin-top: 0; color: #1976d2;">🎯 Nowy kompleksowy system ANDA:</h4>
+                                <ul style="margin-left: 20px;">
+                                    <li><strong>🔄 Automatyczna konwersja:</strong> Simple → Variable products</li>
+                                    <li><strong>🔍 Zaawansowane warianty:</strong> BASE-01, BASE_M, BASE-01_M, BASE_38</li>
+                                    <li><strong>💰 Kompletne dane:</strong> Ceny z meta_data, stock, wymiary</li>
+                                    <li><strong>📏 Rozmiary liczbowe:</strong> 38, 39, 16GB itp.</li>
+                                    <li><strong>🏷️ Atrybuty globalne:</strong> pa_kolor, pa_rozmiar</li>
+                                </ul>
+                            </div>
+
+                            <div style="text-align: center; margin: 20px 0;">
+                                <a href="<?php echo plugin_dir_url(dirname(dirname(__FILE__))); ?>anda-manager.php"
+                                    class="button button-primary button-hero" target="_blank"
+                                    style="background: linear-gradient(45deg, #ff6b6b, #ee5a24); border: none; box-shadow: 0 4px 15px rgba(255, 107, 107, 0.4); padding: 20px 40px; font-size: 16px; color: white; text-decoration: none;">
+                                    <span class="dashicons dashicons-admin-tools"
+                                        style="font-size: 20px; margin-right: 8px;"></span>
+                                    🔥 <?php _e('Otwórz ANDA Manager', 'multi-hurtownie-integration'); ?>
+                                </a>
+                            </div>
+
+                            <div class="notice notice-success inline">
+                                <p><strong><?php _e('Zalety ANDA Managera:', 'multi-wholesale-integration'); ?></strong></p>
+                                <ul>
+                                    <li><?php _e('✅ Stage 1: Filtrowanie i tworzenie produktów głównych', 'multi-wholesale-integration'); ?>
+                                    </li>
+                                    <li><?php _e('✅ Stage 2: Kompleksowa konwersja na variable products z wariantami', 'multi-wholesale-integration'); ?>
+                                    </li>
+                                    <li><?php _e('✅ Stage 3: Import obrazów i galerii', 'multi-wholesale-integration'); ?>
+                                    </li>
+                                    <li><?php _e('✅ Auto-continue: Automatyczne przechodzenie przez wszystkie produkty', 'multi-wholesale-integration'); ?>
+                                    </li>
+                                    <li><?php _e('✅ Force Update: Nadpisywanie istniejących produktów', 'multi-wholesale-integration'); ?>
+                                    </li>
+                                    <li><?php _e('✅ Szczegółowe logowanie i monitoring postępu', 'multi-wholesale-integration'); ?>
+                                    </li>
+                                </ul>
+                            </div>
+                        </div>
                     </div>
                 </div>
-            </div>
-        <?php elseif ($active_tab === 'ai-categories'): ?>
-            <!-- Sekcja: AI Kategorie -->
-            <?php include_once MHI_PLUGIN_DIR . 'admin/views/ai-categories-page.php'; ?>
+            <?php elseif ($active_tab === 'ai-categories'): ?>
+                <!-- Sekcja: AI Kategorie -->
+                <?php include_once MHI_PLUGIN_DIR . 'admin/views/ai-categories-page.php'; ?>
 
-        <?php endif; ?>
+            <?php endif; ?>
+        </div>
     </div>
-</div>

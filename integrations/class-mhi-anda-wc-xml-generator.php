@@ -775,12 +775,13 @@ class MHI_ANDA_WC_XML_Generator
 
     /**
      * Generuje plik XML z produktami dla WooCommerce w standardowej strukturze.
+     * NOWA WERSJA: Automatycznie wykrywa warianty i tworzy variable products.
      *
      * @return array Status operacji
      */
     private function generate_products_xml()
     {
-        error_log("MHI ANDA: Generuję plik XML z produktami ANDA w standardowej strukturze");
+        error_log("MHI ANDA: 🎯 Generuję plik XML z automatycznym wykrywaniem wariantów ANDA");
 
         $xml = new DOMDocument('1.0', 'UTF-8');
         $xml->formatOutput = true;
@@ -789,24 +790,43 @@ class MHI_ANDA_WC_XML_Generator
         $root = $xml->createElement('products');
         $xml->appendChild($root);
 
+        // KROK 1: Grupuj produkty według base SKU i wykryj warianty
+        $product_groups = $this->group_products_by_base_sku();
+        error_log("MHI ANDA: 📊 Wykryto " . count($product_groups) . " grup produktów");
+
         $count = 0;
-        $batch_size = 50; // Przetwarzaj po 50 produktów naraz
+        $variant_count = 0;
+        $batch_size = 50;
         $processed = 0;
 
-        foreach ($this->products_data as $item_number => $product) {
-            $product_element = $this->create_standard_product_element($xml, $product, $item_number);
-            if ($product_element) {
-                $root->appendChild($product_element);
-                $count++;
+        foreach ($product_groups as $base_sku => $group) {
+            if (count($group['variants']) > 1) {
+                // VARIABLE PRODUCT z wariantami
+                error_log("MHI ANDA: 🎨 Tworzę variable product: $base_sku z " . count($group['variants']) . " wariantami");
+                $product_element = $this->create_variable_product_element($xml, $group, $base_sku);
+                if ($product_element) {
+                    $root->appendChild($product_element);
+                    $count++;
+                    $variant_count += count($group['variants']);
+                }
+            } else {
+                // SIMPLE PRODUCT
+                $item_number = array_keys($group['variants'])[0];
+                $product = $group['variants'][$item_number];
+                $product_element = $this->create_standard_product_element($xml, $product, $item_number);
+                if ($product_element) {
+                    $root->appendChild($product_element);
+                    $count++;
+                }
             }
 
             $processed++;
 
             // Zwolnij pamięć co batch_size elementów
             if ($processed % $batch_size === 0) {
-                unset($product, $product_element);
+                unset($group, $product_element);
                 gc_collect_cycles();
-                error_log("MHI ANDA: Przetworzono $processed produktów...");
+                error_log("MHI ANDA: Przetworzono $processed grup produktów...");
             }
         }
 
@@ -815,15 +835,501 @@ class MHI_ANDA_WC_XML_Generator
         $file_path = $this->target_dir . '/' . $filename;
 
         if ($xml->save($file_path)) {
-            error_log("MHI ANDA: Wygenerowano $count produktów w pliku $filename");
+            error_log("MHI ANDA: ✅ Wygenerowano $count produktów ($variant_count wariantów) w pliku $filename");
 
             // Zwolnij pamięć po zapisaniu
             unset($xml, $root);
             gc_collect_cycles();
 
-            return ['success' => true, 'file' => $filename, 'count' => $count];
+            return [
+                'success' => true,
+                'file' => $filename,
+                'count' => $count,
+                'variants' => $variant_count
+            ];
         } else {
             throw new Exception("Nie można zapisać pliku $filename");
+        }
+    }
+
+    /**
+     * Grupuje produkty według base SKU i wykrywa warianty.
+     * Obsługuje formaty: BASE-XX, BASE_SIZE, BASE-XX_SIZE, BASE_XX_SIZE
+     *
+     * @return array Zgrupowane produkty z wariantami
+     */
+    private function group_products_by_base_sku()
+    {
+        $groups = [];
+        $processed_skus = [];
+
+        foreach ($this->products_data as $item_number => $product) {
+            if (in_array($item_number, $processed_skus)) {
+                continue; // już przetworzony jako wariant
+            }
+
+            // Wykryj base SKU dla tego produktu
+            $base_sku = $this->extract_base_sku($item_number);
+
+            if (!isset($groups[$base_sku])) {
+                $groups[$base_sku] = [
+                    'base_product' => $product,
+                    'variants' => []
+                ];
+            }
+
+            // Znajdź wszystkie warianty dla tego base SKU
+            $variants = $this->find_all_product_variants($base_sku);
+
+            foreach ($variants as $variant_sku => $variant_data) {
+                if (isset($this->products_data[$variant_sku])) {
+                    $groups[$base_sku]['variants'][$variant_sku] = $this->products_data[$variant_sku];
+                    $processed_skus[] = $variant_sku;
+                }
+            }
+
+            // Jeśli nie znaleziono wariantów, dodaj główny produkt
+            if (empty($groups[$base_sku]['variants'])) {
+                $groups[$base_sku]['variants'][$item_number] = $product;
+                $processed_skus[] = $item_number;
+            }
+
+            error_log("MHI ANDA: 🔍 Base SKU '$base_sku' ma " . count($groups[$base_sku]['variants']) . " wariantów");
+        }
+
+        return $groups;
+    }
+
+    /**
+     * Wyciąga base SKU z pełnego SKU produktu.
+     * Obsługuje formaty: AP4135-01 -> AP4135, AP4135_S -> AP4135, AP4135-01_S -> AP4135
+     *
+     * @param string $full_sku
+     * @return string
+     */
+    private function extract_base_sku($full_sku)
+    {
+        // Pattern 1: BASE-XX (kolor) - AP4135-01
+        if (preg_match('/^(.+)-(\d{2})$/', $full_sku, $matches)) {
+            return $matches[1];
+        }
+
+        // Pattern 2: BASE_SIZE (rozmiar) - AP4135_S, AP4135_38, AP4135_16GB
+        if (preg_match('/^(.+)_(S|M|L|XL|XXL|XXXL|XS|XXS|XXXS|XXXXS|\d+[Gg][Bb]?|\d{2,3})$/i', $full_sku, $matches)) {
+            return $matches[1];
+        }
+
+        // Pattern 3: BASE-XX_SIZE (kombinowany) - AP4135-01_S
+        if (preg_match('/^(.+)-\d{2}_(S|M|L|XL|XXL|XXXL|XS|XXS|XXXS|XXXXS|\d+[Gg][Bb]?|\d{2,3})$/i', $full_sku, $matches)) {
+            return $matches[1];
+        }
+
+        // Pattern 4: BASE_XX_SIZE (alternatywny) - AP4135_01_S
+        if (preg_match('/^(.+)_\d{2}_(S|M|L|XL|XXL|XXXL|XS|XXS|XXXS|XXXXS|\d+[Gg][Bb]?|\d{2,3})$/i', $full_sku, $matches)) {
+            return $matches[1];
+        }
+
+        // Jeśli nie pasuje do żadnego wzorca, zwróć oryginalny SKU
+        return $full_sku;
+    }
+
+    /**
+     * Znajduje wszystkie warianty dla danego base SKU.
+     *
+     * @param string $base_sku
+     * @return array
+     */
+    private function find_all_product_variants($base_sku)
+    {
+        $variants = [];
+
+        foreach ($this->products_data as $item_number => $product) {
+            $variant_base = $this->extract_base_sku($item_number);
+
+            if ($variant_base === $base_sku) {
+                $variants[$item_number] = $product;
+            }
+        }
+
+        return $variants;
+    }
+
+    /**
+     * Tworzy element variable product z wariantami.
+     *
+     * @param DOMDocument $xml
+     * @param array $group
+     * @param string $base_sku
+     * @return DOMElement|null
+     */
+    private function create_variable_product_element($xml, $group, $base_sku)
+    {
+        try {
+            $product_element = $xml->createElement('product');
+
+            // Użyj pierwszego wariantu jako bazę dla głównego produktu
+            $first_variant = reset($group['variants']);
+            $base_product = $group['base_product'] ?? $first_variant;
+
+            // === PODSTAWOWE DANE VARIABLE PRODUCT ===
+            $this->add_xml_element($xml, $product_element, 'sku', $base_sku);
+            $this->add_xml_element($xml, $product_element, 'type', 'variable'); // ⭐ KLUCZOWE!
+
+            // Nazwa produktu głównego
+            $name = $this->build_complete_product_name($base_product, $base_sku);
+            $this->add_xml_element($xml, $product_element, 'name', $name);
+
+            // Opis produktu
+            $description = $this->build_complete_description($base_product);
+            $this->add_xml_element($xml, $product_element, 'description', $description);
+
+            // === KATEGORIE (z pierwszego wariantu) ===
+            $this->add_complete_categories($xml, $product_element, $base_product);
+
+            // === ATRYBUTY GLOBALNE (pa_kolor, pa_rozmiar) ===
+            $this->add_variable_product_attributes($xml, $product_element, $group['variants']);
+
+            // === ZDJĘCIA (z pierwszego wariantu) ===
+            $this->add_complete_images($xml, $product_element, $base_product);
+
+            // === META DATA ===
+            $this->add_xml_element($xml, $product_element, 'manage_stock', 'no'); // Warianty zarządzają stock
+            $this->add_complete_meta_data($xml, $product_element, $base_product, $base_sku);
+
+            // === SEKCJA WARIANTÓW ===
+            $this->add_product_variations($xml, $product_element, $group['variants'], $base_sku);
+
+            return $product_element;
+
+        } catch (Exception $e) {
+            error_log("MHI ANDA: ❌ Błąd tworzenia variable product $base_sku: " . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Dodaje atrybuty globalne dla variable product (pa_kolor, pa_rozmiar).
+     *
+     * @param DOMDocument $xml
+     * @param DOMElement $product_element
+     * @param array $variants
+     */
+    private function add_variable_product_attributes($xml, $product_element, $variants)
+    {
+        $attributes_element = $xml->createElement('attributes');
+        $product_element->appendChild($attributes_element);
+
+        // Zbierz wszystkie kolory i rozmiary z wariantów
+        $colors = [];
+        $sizes = [];
+
+        foreach ($variants as $variant_sku => $variant_data) {
+            $variant_attrs = $this->extract_variant_attributes($variant_sku, $variant_data);
+
+            if (!empty($variant_attrs['kolor'])) {
+                $colors[] = $variant_attrs['kolor'];
+            }
+            if (!empty($variant_attrs['rozmiar'])) {
+                $sizes[] = $variant_attrs['rozmiar'];
+            }
+        }
+
+        // Usuń duplikaty
+        $colors = array_unique($colors);
+        $sizes = array_unique($sizes);
+
+        // Dodaj atrybut koloru (jeśli są kolory)
+        if (!empty($colors)) {
+            $color_attr = $xml->createElement('attribute');
+            $this->add_xml_element($xml, $color_attr, 'name', 'pa_kolor');
+            $this->add_xml_element($xml, $color_attr, 'value', implode(' | ', $colors));
+            $this->add_xml_element($xml, $color_attr, 'visible', '1');
+            $this->add_xml_element($xml, $color_attr, 'variation', '1'); // ⭐ KLUCZOWE dla wariantów!
+            $this->add_xml_element($xml, $color_attr, 'taxonomy', '1');
+            $attributes_element->appendChild($color_attr);
+
+            error_log("MHI ANDA: 🎨 Dodano atrybut pa_kolor: " . implode(', ', $colors));
+        }
+
+        // Dodaj atrybut rozmiaru (jeśli są rozmiary)
+        if (!empty($sizes)) {
+            $size_attr = $xml->createElement('attribute');
+            $this->add_xml_element($xml, $size_attr, 'name', 'pa_rozmiar');
+            $this->add_xml_element($xml, $size_attr, 'value', implode(' | ', $sizes));
+            $this->add_xml_element($xml, $size_attr, 'visible', '1');
+            $this->add_xml_element($xml, $size_attr, 'variation', '1'); // ⭐ KLUCZOWE dla wariantów!
+            $this->add_xml_element($xml, $size_attr, 'taxonomy', '1');
+            $attributes_element->appendChild($size_attr);
+
+            error_log("MHI ANDA: 📏 Dodano atrybut pa_rozmiar: " . implode(', ', $sizes));
+        }
+    }
+
+    /**
+     * Wyciąga atrybuty wariantu (kolor, rozmiar) z SKU.
+     *
+     * @param string $variant_sku
+     * @param array $variant_data
+     * @return array
+     */
+    private function extract_variant_attributes($variant_sku, $variant_data)
+    {
+        $attributes = [];
+
+        // Wyciągnij base SKU
+        $base_sku = $this->extract_base_sku($variant_sku);
+
+        // Pattern 1: BASE-XX (kolor) - AP4135-01
+        if (preg_match('/^' . preg_quote($base_sku, '/') . '-(\d{2})$/', $variant_sku, $matches)) {
+            $color_code = $matches[1];
+            $attributes['kolor'] = $this->map_color_code_to_name($color_code);
+        }
+
+        // Pattern 2: BASE_SIZE - AP4135_S, AP4135_38
+        if (preg_match('/^' . preg_quote($base_sku, '/') . '_(S|M|L|XL|XXL|XXXL|XS|XXS|XXXS|XXXXS|\d+[Gg][Bb]?|\d{2,3})$/i', $variant_sku, $matches)) {
+            $size = $matches[1];
+            $attributes['rozmiar'] = strtoupper($size);
+        }
+
+        // Pattern 3: BASE-XX_SIZE - AP4135-01_S
+        if (preg_match('/^' . preg_quote($base_sku, '/') . '-(\d{2})_(S|M|L|XL|XXL|XXXL|XS|XXS|XXXS|XXXXS|\d+[Gg][Bb]?|\d{2,3})$/i', $variant_sku, $matches)) {
+            $color_code = $matches[1];
+            $size = $matches[2];
+            $attributes['kolor'] = $this->map_color_code_to_name($color_code);
+            $attributes['rozmiar'] = strtoupper($size);
+        }
+
+        // Pattern 4: BASE_XX_SIZE - AP4135_01_S
+        if (preg_match('/^' . preg_quote($base_sku, '/') . '_(\d{2})_(S|M|L|XL|XXL|XXXL|XS|XXS|XXXS|XXXXS|\d+[Gg][Bb]?|\d{2,3})$/i', $variant_sku, $matches)) {
+            $color_code = $matches[1];
+            $size = $matches[2];
+            $attributes['kolor'] = $this->map_color_code_to_name($color_code);
+            $attributes['rozmiar'] = strtoupper($size);
+        }
+
+        // Alternatywnie sprawdź dane produktu
+        if (!empty($variant_data['primaryColor'])) {
+            $attributes['kolor'] = $variant_data['primaryColor'];
+        }
+
+        return $attributes;
+    }
+
+    /**
+     * Mapuje kod koloru na nazwę koloru.
+     *
+     * @param string $color_code
+     * @return string
+     */
+    private function map_color_code_to_name($color_code)
+    {
+        $color_mapping = [
+            '01' => 'Biały',
+            '02' => 'Czarny',
+            '03' => 'Czerwony',
+            '04' => 'Niebieski',
+            '05' => 'Zielony',
+            '06' => 'Żółty',
+            '07' => 'Pomarańczowy',
+            '08' => 'Różowy',
+            '09' => 'Fioletowy',
+            '10' => 'Szary',
+            '11' => 'Brązowy',
+            '12' => 'Beżowy',
+            '13' => 'Srebrny',
+            '14' => 'Złoty',
+            '15' => 'Granatowy',
+            '16' => 'Turkusowy',
+            '17' => 'Limonkowy',
+            '18' => 'Bordowy',
+            '19' => 'Kremowy',
+            '20' => 'Przezroczysty'
+        ];
+
+        return isset($color_mapping[$color_code]) ? $color_mapping[$color_code] : "Kolor-$color_code";
+    }
+
+    /**
+     * Dodaje warianty do variable product.
+     *
+     * @param DOMDocument $xml
+     * @param DOMElement $product_element
+     * @param array $variants
+     * @param string $base_sku
+     */
+    private function add_product_variations($xml, $product_element, $variants, $base_sku)
+    {
+        $variations_element = $xml->createElement('variations');
+        $product_element->appendChild($variations_element);
+
+        foreach ($variants as $variant_sku => $variant_data) {
+            $variation_element = $this->create_variation_element_complete($xml, $variant_sku, $variant_data, $base_sku);
+            if ($variation_element) {
+                $variations_element->appendChild($variation_element);
+            }
+        }
+
+        error_log("MHI ANDA: 🎯 Dodano " . count($variants) . " wariantów do $base_sku");
+    }
+
+    /**
+     * Tworzy kompletny element wariantu.
+     *
+     * @param DOMDocument $xml
+     * @param string $variant_sku
+     * @param array $variant_data
+     * @param string $base_sku
+     * @return DOMElement|null
+     */
+    private function create_variation_element_complete($xml, $variant_sku, $variant_data, $base_sku)
+    {
+        try {
+            $variation_element = $xml->createElement('variation');
+
+            // === PODSTAWOWE DANE WARIANTU ===
+            $this->add_xml_element($xml, $variation_element, 'sku', $variant_sku);
+
+            // Nazwa wariantu
+            $variant_name = $this->build_variant_name($variant_data, $variant_sku);
+            $this->add_xml_element($xml, $variation_element, 'name', $variant_name);
+
+            // === CENY Z ORYGINALNEGO SKU ===
+            $price_data = $this->get_product_price($variant_sku);
+            if (!empty($price_data)) {
+                $this->add_pricing_data($xml, $variation_element, $price_data);
+            }
+
+            // === STOCK Z ORYGINALNEGO SKU ===
+            $stock = $this->get_product_stock($variant_sku);
+            $this->add_xml_element($xml, $variation_element, 'stock_quantity', $stock);
+            $stock_status = $stock > 0 ? 'instock' : 'outofstock';
+            $this->add_xml_element($xml, $variation_element, 'stock_status', $stock_status);
+            $this->add_xml_element($xml, $variation_element, 'manage_stock', 'yes');
+
+            // === ATRYBUTY WARIANTU ===
+            $variant_attributes = $this->extract_variant_attributes($variant_sku, $variant_data);
+            $this->add_variation_attributes($xml, $variation_element, $variant_attributes);
+
+            // === WYMIARY PRODUKTU ===
+            if (!empty($variant_data['individualProductWeightGram'])) {
+                $weight_kg = floatval($variant_data['individualProductWeightGram']) / 1000;
+                $this->add_xml_element($xml, $variation_element, 'weight', number_format($weight_kg, 3, '.', ''));
+            }
+            if (!empty($variant_data['width'])) {
+                $this->add_xml_element($xml, $variation_element, 'length', $variant_data['width']);
+            }
+            if (!empty($variant_data['height'])) {
+                $this->add_xml_element($xml, $variation_element, 'width', $variant_data['height']);
+            }
+            if (!empty($variant_data['depth'])) {
+                $this->add_xml_element($xml, $variation_element, 'height', $variant_data['depth']);
+            }
+
+            // === META DATA WARIANTU ===
+            $this->add_variation_meta_data($xml, $variation_element, $variant_data, $variant_sku);
+
+            return $variation_element;
+
+        } catch (Exception $e) {
+            error_log("MHI ANDA: ❌ Błąd tworzenia wariantu $variant_sku: " . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Buduje nazwę wariantu.
+     *
+     * @param array $variant_data
+     * @param string $variant_sku
+     * @return string
+     */
+    private function build_variant_name($variant_data, $variant_sku)
+    {
+        $name_parts = [];
+
+        // Główna nazwa
+        if (!empty($variant_data['designName'])) {
+            $name_parts[] = $variant_data['designName'];
+        } elseif (!empty($variant_data['n'])) {
+            $name_parts[] = $variant_data['n'];
+        }
+
+        // Dodaj atrybuty wariantu
+        $variant_attrs = $this->extract_variant_attributes($variant_sku, $variant_data);
+        $attr_parts = [];
+
+        if (!empty($variant_attrs['kolor'])) {
+            $attr_parts[] = $variant_attrs['kolor'];
+        }
+        if (!empty($variant_attrs['rozmiar'])) {
+            $attr_parts[] = $variant_attrs['rozmiar'];
+        }
+
+        if (!empty($attr_parts)) {
+            $name_parts[] = '(' . implode(', ', $attr_parts) . ')';
+        }
+
+        return !empty($name_parts) ? implode(' ', $name_parts) : $variant_sku;
+    }
+
+    /**
+     * Dodaje atrybuty wariantu (pa_kolor, pa_rozmiar).
+     *
+     * @param DOMDocument $xml
+     * @param DOMElement $variation_element
+     * @param array $variant_attributes
+     */
+    private function add_variation_attributes($xml, $variation_element, $variant_attributes)
+    {
+        $attributes_element = $xml->createElement('attributes');
+        $variation_element->appendChild($attributes_element);
+
+        // Dodaj kolor jako pa_kolor
+        if (!empty($variant_attributes['kolor'])) {
+            $color_attr = $xml->createElement('attribute');
+            $this->add_xml_element($xml, $color_attr, 'name', 'pa_kolor');
+            $this->add_xml_element($xml, $color_attr, 'value', $variant_attributes['kolor']);
+            $attributes_element->appendChild($color_attr);
+        }
+
+        // Dodaj rozmiar jako pa_rozmiar
+        if (!empty($variant_attributes['rozmiar'])) {
+            $size_attr = $xml->createElement('attribute');
+            $this->add_xml_element($xml, $size_attr, 'name', 'pa_rozmiar');
+            $this->add_xml_element($xml, $size_attr, 'value', $variant_attributes['rozmiar']);
+            $attributes_element->appendChild($size_attr);
+        }
+    }
+
+    /**
+     * Dodaje meta data dla wariantu.
+     *
+     * @param DOMDocument $xml
+     * @param DOMElement $variation_element
+     * @param array $variant_data
+     * @param string $variant_sku
+     */
+    private function add_variation_meta_data($xml, $variation_element, $variant_data, $variant_sku)
+    {
+        $meta_section = $xml->createElement('meta_data');
+        $variation_element->appendChild($meta_section);
+
+        // Kod ANDA wariantu
+        $this->add_complete_meta($xml, $meta_section, '_anda_variant_code', $variant_sku);
+
+        // EAN wariantu
+        if (!empty($variant_data['eanCode'])) {
+            $this->add_complete_meta($xml, $meta_section, '_anda_variant_ean', $variant_data['eanCode']);
+        }
+
+        // Kolor wariantu
+        if (!empty($variant_data['primaryColor'])) {
+            $this->add_complete_meta($xml, $meta_section, '_anda_variant_color', $variant_data['primaryColor']);
+        }
+
+        // Minimalne zamówienie dla wariantu
+        if (!empty($variant_data['minimumOrderQuantity'])) {
+            $this->add_complete_meta($xml, $meta_section, '_anda_variant_min_order', $variant_data['minimumOrderQuantity']);
         }
     }
 

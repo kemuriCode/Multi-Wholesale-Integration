@@ -331,41 +331,56 @@ $stage_3_count = (int) $wpdb->get_var("
                 <div class="action-card">
                     <h3>📦 Stage 1 - Produkty</h3>
                     <p>Importuje podstawowe dane produktów z czystymi SKU. Filtruje warianty i zbiera zdjęcia.</p>
-                    <a href="anda-import.php?stage=1&batch_size=25&auto_continue=1" class="btn btn-primary">
+                    <a href="anda-import.php?stage=1&batch_size=25&auto_continue=1&anda_size_variants=1"
+                        class="btn btn-primary">
                         🚀 Start Stage 1 Auto
                     </a>
-                    <a href="anda-import.php?stage=1&batch_size=25" class="btn btn-primary">
+                    <a href="anda-import.php?stage=1&batch_size=25&anda_size_variants=1" class="btn btn-primary">
                         📦 Stage 1 Manual
                     </a>
                 </div>
 
                 <div class="action-card">
                     <h3>🎯 Stage 2 - Warianty</h3>
-                    <p>Tworzy warianty produktów z atrybutami kolor i rozmiar. Przypisuje ceny i stany magazynowe.</p>
-                    <a href="anda-import.php?stage=2&batch_size=25&auto_continue=1" class="btn btn-warning">
+                    <p>Tworzy warianty produktów z atrybutami kolor i rozmiar (w tym 38, 39 itp.). Mapuje ceny i stany
+                        magazynowe z oryginalnych SKU.</p>
+                    <a href="anda-import.php?stage=2&batch_size=25&auto_continue=1&anda_size_variants=1"
+                        class="btn btn-warning">
                         🚀 Start Stage 2 Auto
                     </a>
-                    <a href="anda-import.php?stage=2&batch_size=25" class="btn btn-warning">
+                    <a href="anda-import.php?stage=2&batch_size=25&anda_size_variants=1" class="btn btn-warning">
                         🎯 Stage 2 Manual
                     </a>
                 </div>
 
                 <div class="action-card">
                     <h3>📷 Stage 3 - Obrazy</h3>
-                    <p>Importuje zdjęcia produktów i tworzy galerie. Ustawia główne zdjęcia produktów.</p>
-                    <a href="anda-import.php?stage=3&batch_size=15&auto_continue=1" class="btn btn-success">
+                    <p>Importuje zdjęcia produktów i tworzy galerie z obrazów głównych i wariantów. Ustawia główne zdjęcia.
+                    </p>
+                    <a href="anda-import.php?stage=3&batch_size=15&auto_continue=1&anda_size_variants=1"
+                        class="btn btn-success">
                         🚀 Start Stage 3 Auto
                     </a>
-                    <a href="anda-import.php?stage=3&batch_size=15" class="btn btn-success">
+                    <a href="anda-import.php?stage=3&batch_size=15&anda_size_variants=1" class="btn btn-success">
                         📷 Stage 3 Manual
                     </a>
                 </div>
 
                 <div class="action-card">
                     <h3>🔄 Operacje zaawansowane</h3>
-                    <p>Narzędzia do debugowania i zarządzania importem.</p>
-                    <a href="anda-import.php?stage=1&batch_size=25&auto_continue=1&force_update=1" class="btn btn-danger">
-                        🔄 Force Update All
+                    <p>Narzędzia do debugowania i zarządzania importem. Force Update nadpisuje istniejące produkty i
+                        warianty.</p>
+                    <a href="anda-import.php?stage=1&batch_size=25&auto_continue=1&force_update=1&anda_size_variants=1"
+                        class="btn btn-danger">
+                        🔄 Force Update Stage 1
+                    </a>
+                    <a href="anda-import.php?stage=2&batch_size=25&auto_continue=1&force_update=1&anda_size_variants=1"
+                        class="btn btn-danger">
+                        🔄 Force Update Stage 2
+                    </a>
+                    <a href="anda-import.php?stage=3&batch_size=15&auto_continue=1&force_update=1&anda_size_variants=1"
+                        class="btn btn-danger">
+                        🔄 Force Update Stage 3
                     </a>
                     <a href="?reset_anda=1" class="btn btn-danger"
                         onclick="return confirm('Czy na pewno chcesz zresetować wszystkie stage\'y ANDA?')">
@@ -378,12 +393,28 @@ $stage_3_count = (int) $wpdb->get_var("
         <div class="info-panel">
             <h3>💡 Jak używać ANDA Importera</h3>
             <ol>
-                <li><strong>Stage 1:</strong> Uruchom pierwszy - importuje produkty główne z czystymi SKU</li>
-                <li><strong>Stage 2:</strong> Tworzy warianty kolorów i rozmiarów dla każdego produktu</li>
-                <li><strong>Stage 3:</strong> Importuje wszystkie zdjęcia i tworzy galerie</li>
+                <li><strong>Stage 1:</strong> Uruchom pierwszy - importuje produkty główne z czystymi SKU, filtruje
+                    warianty i zbiera zdjęcia z wszystkich wariantów</li>
+                <li><strong>Stage 2:</strong> KOMPLEKSOWO konwertuje produkty na variable i tworzy WSZYSTKIE warianty z
+                    atrybutami kolor/rozmiar</li>
+                <li><strong>Stage 3:</strong> Importuje wszystkie zdjęcia z głównych produktów i wariantów, tworzy
+                    galerie</li>
             </ol>
             <p><strong>Auto mode:</strong> Automatycznie przechodzi przez wszystkie produkty w batches.</p>
             <p><strong>Manual mode:</strong> Pozwala kontrolować każdy batch osobno.</p>
+            <p><strong>Force Update:</strong> Nadpisuje istniejące produkty i warianty z aktualnymi danymi z XML.</p>
+            <br>
+            <div class="status status-success">
+                <strong>🔥 NOWY KOMPLEKSOWY SYSTEM ANDA:</strong><br>
+                ✅ <strong>Automatyczna konwersja na variable products</strong> - produkty z wariantami są automatycznie
+                konwertowane<br>
+                ✅ <strong>Zaawansowane znajdowanie wariantów</strong> - obsługuje BASE-01, BASE_M, BASE-01_M, BASE_01_38
+                i inne formaty<br>
+                ✅ <strong>Kompletne mapowanie danych</strong> - ceny, stock, wymiary z oryginalnych SKU wariantów<br>
+                ✅ <strong>Rozmiary liczbowe</strong> - pełna obsługa 38, 39, 16GB itp.<br>
+                ✅ <strong>Error handling</strong> - solidne obsługiwanie błędów i logowanie<br>
+                ✅ <strong>Metadane ANDA</strong> - właściwe ceny z _anda_price_listPrice i _anda_price_discountPrice
+            </div>
         </div>
 
         <div style="text-align: center; margin: 30px 0;">
