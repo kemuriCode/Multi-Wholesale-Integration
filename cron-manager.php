@@ -294,7 +294,24 @@ if (is_dir($wholesale_dir)) {
                                 <div class="control-row">
                                     <span class="control-label">Rozmiary ANDA:</span>
                                     <input type="checkbox" class="control-input anda-size-variants-check"
-                                        data-supplier="<?php echo $supplier; ?>"> Konwertuj na warianty
+                                        data-supplier="<?php echo $supplier; ?>"> Konwertuj na warianty (stary tryb)
+                                </div>
+                                <div class="control-row">
+                                    <span class="control-label">🎯 Nowe warianty:</span>
+                                    <input type="checkbox" class="control-input anda-new-variants-check"
+                                        data-supplier="<?php echo $supplier; ?>" checked> ANDA type=variable/variation
+                                </div>
+                                <div class="control-row"
+                                    style="background: #fff3cd; padding: 10px; border-radius: 5px; border: 1px solid #ffc107;">
+                                    <span class="control-label">🧪 Test wariantów:</span>
+                                    <button type="button" class="control-input"
+                                        style="background: #ffc107; border: none; border-radius: 5px; padding: 8px 15px; font-weight: bold; cursor: pointer;"
+                                        onclick="runAndaVariantsTest('<?php echo $supplier; ?>')">
+                                        🧪 Test 20 produktów z wariantami
+                                    </button>
+                                    <small style="display: block; color: #856404; margin-top: 5px;">
+                                        Testuje nowy system wariantów na próbce 20 produktów
+                                    </small>
                                 </div>
                             <?php endif; ?>
                         </div>
@@ -385,6 +402,7 @@ if (is_dir($wholesale_dir)) {
             const maxProducts = document.querySelector(`input.max-products-input[data-supplier="${supplier}"]`).value;
             const forceUpdate = document.querySelector(`input.force-update-check[data-supplier="${supplier}"]`).checked;
             const andaSizeVariants = document.querySelector(`input.anda-size-variants-check[data-supplier="${supplier}"]`)?.checked || false;
+            const andaNewVariants = document.querySelector(`input.anda-new-variants-check[data-supplier="${supplier}"]`)?.checked || false;
 
             let url = `cron-import.php?supplier=${supplier}&stage=${stage}&batch_size=${batchSize}&offset=${offset}`;
 
@@ -394,6 +412,10 @@ if (is_dir($wholesale_dir)) {
 
             if (andaSizeVariants && supplier === 'anda') {
                 url += '&anda_size_variants=1';
+            }
+
+            if (andaNewVariants && supplier === 'anda') {
+                url += '&anda_new_variants=1';
             }
 
             if (autoContinue) {
@@ -411,14 +433,64 @@ if (is_dir($wholesale_dir)) {
                 const batchSize = document.querySelector(`select.batch-size[data-supplier="${supplier}"]`).value;
                 const forceUpdate = document.querySelector(`input.force-update-check[data-supplier="${supplier}"]`).checked;
                 const andaSizeVariants = document.querySelector(`input.anda-size-variants-check[data-supplier="${supplier}"]`)?.checked || false;
+                const andaNewVariants = document.querySelector(`input.anda-new-variants-check[data-supplier="${supplier}"]`)?.checked || false;
 
                 const forceParam = forceUpdate ? '&force_update=1' : '';
-                const andaParam = (andaSizeVariants && supplier === 'anda') ? '&anda_size_variants=1' : '';
+                const andaSizeParam = (andaSizeVariants && supplier === 'anda') ? '&anda_size_variants=1' : '';
+                const andaNewParam = (andaNewVariants && supplier === 'anda') ? '&anda_new_variants=1' : '';
 
                 // Otwórz wszystkie 3 stage'y w nowych kartach
-                setTimeout(() => window.open(`cron-import.php?supplier=${supplier}&stage=1&batch_size=${batchSize}${forceParam}${andaParam}`, '_blank'), 0);
-                setTimeout(() => window.open(`cron-import.php?supplier=${supplier}&stage=2&batch_size=${batchSize}${forceParam}${andaParam}`, '_blank'), 2000);
-                setTimeout(() => window.open(`cron-import.php?supplier=${supplier}&stage=3&batch_size=${batchSize}${forceParam}${andaParam}`, '_blank'), 4000);
+                setTimeout(() => window.open(`cron-import.php?supplier=${supplier}&stage=1&batch_size=${batchSize}${forceParam}${andaSizeParam}${andaNewParam}`, '_blank'), 0);
+                setTimeout(() => window.open(`cron-import.php?supplier=${supplier}&stage=2&batch_size=${batchSize}${forceParam}${andaSizeParam}${andaNewParam}`, '_blank'), 2000);
+                setTimeout(() => window.open(`cron-import.php?supplier=${supplier}&stage=3&batch_size=${batchSize}${forceParam}${andaSizeParam}${andaNewParam}`, '_blank'), 4000);
+            }
+        }
+
+        // 🧪 NOWA FUNKCJA: Test wariantów ANDA z 20 produktami
+        function runAndaVariantsTest(supplier) {
+            if (supplier !== 'anda') {
+                alert('❌ Ta funkcja jest dostępna tylko dla ANDA!');
+                return;
+            }
+
+            if (confirm(`🧪 ANDA - Test nowych wariantów\n\n` +
+                       `✅ Uruchomi import 20 produktów z nowym systemem wariantów\n` +
+                       `✅ Obsłuży type="variable" i type="variation"\n` +
+                       `✅ Utworzy główne produkty i warianty\n` +
+                       `✅ Nadpisze istniejące produkty (force_update=1)\n\n` +
+                       `Czy kontynuować?`)) {
+                
+                // Parametry testowe
+                const testParams = [
+                    'test_variants=1',      // Tryb testowy (20 produktów)
+                    'anda_new_variants=1',  // Nowe warianty ANDA
+                    'force_update=1',       // Nadpisuj istniejące
+                    'batch_size=20'         // 20 produktów na raz
+                ].join('&');
+
+                // Uruchom test dla wszystkich 3 stage'ów
+                const baseUrl = `cron-import.php?supplier=${supplier}&${testParams}`;
+                
+                setTimeout(() => {
+                    window.open(`${baseUrl}&stage=1`, '_blank');
+                    console.log('🧪 ANDA Test: Uruchomiono Stage 1');
+                }, 0);
+                
+                setTimeout(() => {
+                    window.open(`${baseUrl}&stage=2`, '_blank');
+                    console.log('🧪 ANDA Test: Uruchomiono Stage 2');
+                }, 3000);
+                
+                setTimeout(() => {
+                    window.open(`${baseUrl}&stage=3`, '_blank');
+                    console.log('🧪 ANDA Test: Uruchomiono Stage 3');
+                }, 6000);
+
+                alert(`🧪 ANDA Test rozpoczęty!\n\n` +
+                      `📦 Stage 1: Teraz\n` +
+                      `🏷️ Stage 2: Za 3 sekundy\n` +
+                      `📷 Stage 3: Za 6 sekund\n\n` +
+                      `Sprawdź nowe karty przeglądarki dla postępu.`);
             }
         }
 

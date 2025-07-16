@@ -59,6 +59,15 @@ $stage_3_count = (int) $wpdb->get_var("
     AND meta_value = 'yes'
 ");
 
+// Policz złe produkty ANDA
+$bad_anda_count = (int) $wpdb->get_var("
+    SELECT COUNT(*) FROM {$wpdb->posts} p 
+    JOIN {$wpdb->postmeta} pm ON p.ID = pm.post_id 
+    WHERE pm.meta_key = '_sku' 
+    AND p.post_type IN ('product', 'product_variation')
+    AND (pm.meta_value REGEXP '-[0-9]{2}$' OR pm.meta_value REGEXP '_[A-Z0-9]+$')
+");
+
 ?>
 <!DOCTYPE html>
 <html lang="pl">
@@ -270,6 +279,15 @@ $stage_3_count = (int) $wpdb->get_var("
             </div>
         <?php endif; ?>
 
+        <?php if ($bad_anda_count > 0): ?>
+            <div class="status status-warning">
+                <strong>⚠️ Ostrzeżenie:</strong> Znaleziono <?php echo number_format($bad_anda_count); ?> złych produktów
+                ANDA z wariantami w SKU!<br>
+                <small>Te produkty powinny być usunięte przed uruchomieniem importu. Użyj przycisku "Wyczyść złe
+                    ANDA".</small>
+            </div>
+        <?php endif; ?>
+
         <div class="stats-grid">
             <div class="stat-card">
                 <div class="stat-number"><?php echo number_format($total_products); ?></div>
@@ -287,6 +305,16 @@ $stage_3_count = (int) $wpdb->get_var("
                 <div class="stat-number"><?php echo number_format($stage_2_count); ?></div>
                 <div class="stat-label">Stage 2 ukończone</div>
             </div>
+            <div class="stat-card">
+                <div class="stat-number"><?php echo number_format($stage_3_count); ?></div>
+                <div class="stat-label">Stage 3 ukończone</div>
+            </div>
+            <?php if ($bad_anda_count > 0): ?>
+                <div class="stat-card" style="background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%);">
+                    <div class="stat-number"><?php echo number_format($bad_anda_count); ?></div>
+                    <div class="stat-label">Złe produkty ANDA</div>
+                </div>
+            <?php endif; ?>
         </div>
 
         <div class="progress-overview">
@@ -328,6 +356,19 @@ $stage_3_count = (int) $wpdb->get_var("
 
         <?php if ($xml_exists): ?>
             <div class="actions">
+                <div class="action-card" style="border-left: 5px solid #ff6b6b;">
+                    <h3>🔥 PEŁNY AUTO-IMPORT</h3>
+                    <p><strong>Automatycznie przejdzie przez wszystkie 3 stage'y!</strong> Stage 1 → Stage 2 → Stage 3</p>
+                    <a href="anda-import.php?stage=1&batch_size=25&auto_continue=1&auto_stage=1" class="btn btn-danger"
+                        style="font-size: 16px; padding: 15px 30px;">
+                        🚀 START PEŁNEGO AUTO-IMPORTU
+                    </a>
+                    <a href="anda-import.php?stage=1&batch_size=25&auto_continue=1&auto_stage=1&force_update=1"
+                        class="btn btn-danger">
+                        🔄 PEŁNY AUTO + FORCE UPDATE
+                    </a>
+                </div>
+
                 <div class="action-card">
                     <h3>📦 Stage 1 - Produkty</h3>
                     <p>Importuje podstawowe dane produktów z czystymi SKU. Filtruje warianty i zbiera zdjęcia.</p>
@@ -382,9 +423,34 @@ $stage_3_count = (int) $wpdb->get_var("
                         class="btn btn-danger">
                         🔄 Force Update Stage 3
                     </a>
+                    <a href="?clean_bad_anda=1" class="btn btn-warning"
+                        onclick="return confirm('Czy na pewno chcesz usunąć wszystkie złe produkty ANDA z wariantami w SKU?')">
+                        🧹 Wyczyść złe ANDA
+                    </a>
                     <a href="?reset_anda=1" class="btn btn-danger"
                         onclick="return confirm('Czy na pewno chcesz zresetować wszystkie stage\'y ANDA?')">
                         🗑️ Reset Stages
+                    </a>
+                </div>
+
+                <div class="action-card">
+                    <h3>⚡ Import szybki</h3>
+                    <p>Mniejsze batche dla szybszego importu i lepszej kontroli.</p>
+                    <a href="anda-import.php?stage=1&batch_size=10&auto_continue=1&auto_stage=1" class="btn btn-success">
+                        ⚡ PEŁNY AUTO (batch 10)
+                    </a>
+                    <a href="anda-import.php?stage=1&batch_size=5&auto_continue=1&auto_stage=1" class="btn btn-success">
+                        ⚡ PEŁNY AUTO (batch 5)
+                    </a>
+                    <br><br>
+                    <a href="anda-import.php?stage=1&batch_size=10&auto_continue=1" class="btn btn-primary">
+                        🚀 Stage 1 (batch 10)
+                    </a>
+                    <a href="anda-import.php?stage=2&batch_size=10&auto_continue=1" class="btn btn-warning">
+                        🎯 Stage 2 (batch 10)
+                    </a>
+                    <a href="anda-import.php?stage=3&batch_size=5&auto_continue=1" class="btn btn-primary">
+                        📷 Stage 3 (batch 5)
                     </a>
                 </div>
             </div>
@@ -402,6 +468,7 @@ $stage_3_count = (int) $wpdb->get_var("
             </ol>
             <p><strong>Auto mode:</strong> Automatycznie przechodzi przez wszystkie produkty w batches.</p>
             <p><strong>Manual mode:</strong> Pozwala kontrolować każdy batch osobno.</p>
+<<<<<<< HEAD
             <p><strong>Force Update:</strong> Nadpisuje istniejące produkty i warianty z aktualnymi danymi z XML.</p>
             <br>
             <div class="status status-success">
@@ -415,6 +482,31 @@ $stage_3_count = (int) $wpdb->get_var("
                 ✅ <strong>Error handling</strong> - solidne obsługiwanie błędów i logowanie<br>
                 ✅ <strong>Metadane ANDA</strong> - właściwe ceny z _anda_price_listPrice i _anda_price_discountPrice
             </div>
+=======
+            <p><strong>Force Update:</strong> Nadpisuje istniejące produkty i usuwa złe dane.</p>
+        </div>
+
+        <div class="info-panel" style="background: #e8f5e8; border-left-color: #4CAF50;">
+            <h3>🔥 NOWA FUNKCJA: Pełny Auto-Import!</h3>
+            <ul>
+                <li><strong>🚀 Pełny auto-import:</strong> Jeden klik → wszystkie 3 stage'y automatycznie!</li>
+                <li><strong>⚡ Szybkie tempo:</strong> Przejście między stage'ami co 1-2 sekundy</li>
+                <li><strong>🔄 Smart progression:</strong> Stage 1 → Stage 2 → Stage 3 → Koniec</li>
+                <li><strong>💪 Bez klikania:</strong> Idealny dla 17k produktów!</li>
+            </ul>
+        </div>
+
+        <div class="info-panel" style="background: #e8f5e8; border-left-color: #4CAF50;">
+            <h3>✅ Wszystkie poprawki</h3>
+            <ul>
+                <li><strong>Naprawiony autocontinue:</strong> Teraz automatycznie przechodzi przez wszystkie batche</li>
+                <li><strong>Force update:</strong> Właściwie nadpisuje produkty i usuwa istniejące warianty</li>
+                <li><strong>Czyszczenie złych produktów:</strong> Automatycznie usuwa produkty ANDA z wariantami w SKU
+                </li>
+                <li><strong>Cache obrazów:</strong> Nie pobiera ponownie tych samych zdjęć</li>
+                <li><strong>Lepsze logowanie:</strong> Więcej informacji o postępie i błędach</li>
+            </ul>
+>>>>>>> 6dd7423178823c6d1e25348889dccf38624db34a
         </div>
 
         <div style="text-align: center; margin: 30px 0;">
@@ -428,6 +520,27 @@ $stage_3_count = (int) $wpdb->get_var("
             $wpdb->query("DELETE FROM {$wpdb->postmeta} WHERE meta_key LIKE '_mhi_stage_%_done'");
             echo '<div class="status status-success"><strong>✅ Reset ukończony!</strong> Wszystkie stage\'y zostały zresetowane.</div>';
             echo '<script>setTimeout(function(){ window.location.href = "anda-manager.php"; }, 2000);</script>';
+        }
+
+        // Obsługa czyszczenia złych produktów ANDA
+        if (isset($_GET['clean_bad_anda']) && $_GET['clean_bad_anda'] === '1') {
+            $bad_products = $wpdb->get_results("
+                SELECT p.ID, pm.meta_value as sku 
+                FROM {$wpdb->posts} p 
+                JOIN {$wpdb->postmeta} pm ON p.ID = pm.post_id 
+                WHERE pm.meta_key = '_sku' 
+                AND p.post_type IN ('product', 'product_variation')
+                AND (pm.meta_value REGEXP '-[0-9]{2}$' OR pm.meta_value REGEXP '_[A-Z0-9]+$')
+            ");
+
+            $deleted = 0;
+            foreach ($bad_products as $bad_product) {
+                wp_delete_post($bad_product->ID, true);
+                $deleted++;
+            }
+
+            echo '<div class="status status-success"><strong>✅ Czyszczenie ukończone!</strong> Usunięto ' . $deleted . ' złych produktów ANDA z wariantami w SKU.</div>';
+            echo '<script>setTimeout(function(){ window.location.href = "anda-manager.php"; }, 3000);</script>';
         }
         ?>
     </div>

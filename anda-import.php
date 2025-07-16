@@ -22,6 +22,7 @@ $stage = isset($_GET['stage']) ? (int) $_GET['stage'] : 1;
 $batch_size = isset($_GET['batch_size']) ? (int) $_GET['batch_size'] : 50;
 $offset = isset($_GET['offset']) ? (int) $_GET['offset'] : 0;
 $auto_continue = isset($_GET['auto_continue']) && $_GET['auto_continue'] === '1';
+$auto_stage = isset($_GET['auto_stage']) && $_GET['auto_stage'] === '1'; // NOWY: automatyczne przejście między stage'ami
 $force_update = isset($_GET['force_update']) && $_GET['force_update'] === '1';
 $anda_size_variants = isset($_GET['anda_size_variants']) && $_GET['anda_size_variants'] === '1';
 $max_products = isset($_GET['max_products']) ? (int) $_GET['max_products'] : 0;
@@ -455,6 +456,7 @@ $start_time = microtime(true);
     addLog("📊 Statystyki: Przetworzono=$processed | Import=$imported | Pominięto=$skipped | Błędy=$errors", "info");
     addLog("⏱️ Czas wykonania: {$duration}s", "info");
 
+<<<<<<< HEAD
     // POPRAWIONA LOGIKA AUTO-CONTINUE dla ANDA
     if ($auto_continue) {
         addLog("🔄 AUTO-CONTINUE: Sprawdzam warunki kontynuacji...", "info");
@@ -552,6 +554,35 @@ $start_time = microtime(true);
         }
     } else {
         addLog("❌ Auto-continue WYŁĄCZONY (parametr auto_continue nie jest = 1)", "warning");
+=======
+    // Auto-continue logic - POPRAWIONA WERSJA Z AUTO-STAGE
+    if ($auto_continue && $end_offset < $total) {
+        $next_offset = $end_offset;
+        $next_url = "?stage=$stage&batch_size=$batch_size&offset=$next_offset&auto_continue=1";
+
+        if ($auto_stage) {
+            $next_url .= "&auto_stage=1";
+        }
+        if ($force_update) {
+            $next_url .= "&force_update=1";
+        }
+        if ($max_products > 0) {
+            $next_url .= "&max_products=$max_products";
+            if ($next_offset >= $max_products) {
+                addLog("🛑 Osiągnięto limit max_products: $max_products", "warning");
+                anda_auto_stage_progression($stage, $batch_size, $auto_stage, $force_update, $max_products);
+            } else {
+                addLog("🔄 Auto-continue: Następny batch za 1 sekundę... ($next_offset/$total)", "info");
+                echo '<script>setTimeout(function() { window.location.href = "' . $next_url . '"; }, 1000);</script>';
+            }
+        } else {
+            addLog("🔄 Auto-continue: Następny batch za 1 sekundę... ($next_offset/$total)", "info");
+            echo '<script>setTimeout(function() { window.location.href = "' . $next_url . '"; }, 1000);</script>';
+        }
+    } else if ($auto_continue && $end_offset >= $total) {
+        addLog("✅ Stage $stage ukończony - wszystkie batche przetworzone!", "success");
+        anda_auto_stage_progression($stage, $batch_size, $auto_stage, $force_update, $max_products);
+>>>>>>> 6dd7423178823c6d1e25348889dccf38624db34a
     }
 
     /**
@@ -778,7 +809,7 @@ $start_time = microtime(true);
     }
 
     /**
-     * STAGE 1: Tworzy podstawowy produkt ANDA
+     * STAGE 1: Tworzy podstawowy produkt ANDA - POPRAWIONA WERSJA
      */
     function anda_process_stage_1($product_xml)
     {
@@ -789,9 +820,15 @@ $start_time = microtime(true);
 
         // Sprawdź czy już istnieje
         $product_id = wc_get_product_id_by_sku($sku);
+
+        // ZAWSZE NADPISUJ jeśli force_update lub jeśli to pierwszy raz
         if ($product_id && get_post_meta($product_id, '_mhi_stage_1_done', true) === 'yes' && !$force_update) {
+            addLog("⏭️ Stage 1: $sku - już przetworzony", "info");
             return 'skipped';
         }
+
+        // Usuń złe produkty ANDA bez czystych SKU
+        anda_clean_bad_anda_products($sku);
 
         try {
             $is_update = (bool) $product_id;
@@ -896,8 +933,12 @@ $start_time = microtime(true);
     }
 
     /**
+<<<<<<< HEAD
      * STAGE 2: KOMPLEKSOWE TWORZENIE WARIANTÓW ANDA
      * Konwertuje produkty główne na variable i dodaje WSZYSTKIE pasujące warianty
+=======
+     * STAGE 2: Tworzy warianty ANDA - POPRAWIONA WERSJA
+>>>>>>> 6dd7423178823c6d1e25348889dccf38624db34a
      */
     function anda_process_stage_2($base_sku)
     {
@@ -905,20 +946,37 @@ $start_time = microtime(true);
 
         $product_id = wc_get_product_id_by_sku($base_sku);
         if (!$product_id) {
+<<<<<<< HEAD
             addLog("❌ Stage 2: Produkt $base_sku nie znaleziony", "error");
+=======
+            addLog("⚠️ Stage 2: Nie znaleziono produktu dla SKU: $base_sku", "warning");
+>>>>>>> 6dd7423178823c6d1e25348889dccf38624db34a
             return 'skipped';
         }
 
         // Sprawdź Stage 1
         if (get_post_meta($product_id, '_mhi_stage_1_done', true) !== 'yes') {
+<<<<<<< HEAD
             addLog("⚠️ Stage 2: Stage 1 nie ukończony dla $base_sku", "warning");
+=======
+            addLog("⚠️ Stage 2: $base_sku - brak Stage 1", "warning");
+>>>>>>> 6dd7423178823c6d1e25348889dccf38624db34a
             return 'skipped';
         }
 
-        // Sprawdź Stage 2
+        // Sprawdź Stage 2 - NADPISUJ jeśli force_update
         if (get_post_meta($product_id, '_mhi_stage_2_done', true) === 'yes' && !$force_update) {
+<<<<<<< HEAD
             addLog("⏭️ Stage 2: Już ukończony dla $base_sku", "info");
+=======
+            addLog("⏭️ Stage 2: $base_sku - już przetworzony", "info");
+>>>>>>> 6dd7423178823c6d1e25348889dccf38624db34a
             return 'skipped';
+        }
+
+        // Usuń istniejące warianty jeśli force_update
+        if ($force_update) {
+            anda_remove_existing_variations($product_id);
         }
 
         try {
@@ -1063,7 +1121,7 @@ $start_time = microtime(true);
     }
 
     /**
-     * STAGE 3: Import obrazów
+     * STAGE 3: Import obrazów - POPRAWIONA WERSJA
      */
     function anda_process_stage_3($product_xml, $sku)
     {
@@ -1071,16 +1129,19 @@ $start_time = microtime(true);
 
         $product_id = wc_get_product_id_by_sku($sku);
         if (!$product_id) {
+            addLog("⚠️ Stage 3: Nie znaleziono produktu dla SKU: $sku", "warning");
             return 'skipped';
         }
 
-        // Sprawdź Stage 2
-        if (get_post_meta($product_id, '_mhi_stage_2_done', true) !== 'yes') {
-            return 'skipped';
-        }
-
-        // Sprawdź Stage 3
+        // NIE wymagaj Stage 2 - może nie mieć wariantów
+        // if (get_post_meta($product_id, '_mhi_stage_2_done', true) !== 'yes') {
+        //     addLog("⚠️ Stage 3: $sku - brak Stage 2", "warning");
+        //     return 'skipped';
+        // }
+    
+        // Sprawdź Stage 3 - NADPISUJ jeśli force_update
         if (get_post_meta($product_id, '_mhi_stage_3_done', true) === 'yes' && !$force_update) {
+            addLog("⏭️ Stage 3: $sku - już przetworzony", "info");
             return 'skipped';
         }
 
@@ -1737,21 +1798,130 @@ $start_time = microtime(true);
         if (!$product)
             return;
 
+        // TYLKO usuń galerie - nie główne zdjęcie
         $gallery_ids = $product->get_gallery_image_ids();
         foreach ($gallery_ids as $attachment_id) {
-            wp_delete_attachment($attachment_id, true);
+            // Sprawdź czy to obraz ANDA przed usunięciem
+            $source_url = get_post_meta($attachment_id, '_anda_source_url', true);
+            if (!empty($source_url)) {
+                wp_delete_attachment($attachment_id, true);
+                addLog("🗑️ Usunięto stary obraz ANDA z galerii", "info");
+            }
         }
 
+        // Wyczyść główne zdjęcie tylko jeśli to ANDA
         $thumbnail_id = get_post_thumbnail_id($product_id);
         if ($thumbnail_id) {
-            wp_delete_attachment($thumbnail_id, true);
-            delete_post_thumbnail($product_id);
+            $source_url = get_post_meta($thumbnail_id, '_anda_source_url', true);
+            if (!empty($source_url)) {
+                wp_delete_attachment($thumbnail_id, true);
+                delete_post_thumbnail($product_id);
+                addLog("🗑️ Usunięto stare główne zdjęcie ANDA", "info");
+            }
         }
 
         $product->set_gallery_image_ids([]);
         $product->save();
     }
 
+
+
+    /**
+     * Usuwa złe produkty ANDA (z wariantami w SKU) - NOWA FUNKCJA
+     */
+    function anda_clean_bad_anda_products($base_sku)
+    {
+        global $wpdb;
+
+        // Znajdź wszystkie produkty z podobnym SKU (warianty)
+        $bad_skus = $wpdb->get_results($wpdb->prepare("
+             SELECT p.ID, pm.meta_value as sku 
+             FROM {$wpdb->posts} p 
+             JOIN {$wpdb->postmeta} pm ON p.ID = pm.post_id 
+             WHERE pm.meta_key = '_sku' 
+             AND pm.meta_value LIKE %s
+             AND p.post_type IN ('product', 'product_variation')
+             AND pm.meta_value != %s
+         ", $base_sku . '%', $base_sku));
+
+        $deleted = 0;
+        foreach ($bad_skus as $bad_product) {
+            $bad_sku = $bad_product->sku;
+
+            // Sprawdź czy to wariant ANDA (zawiera - lub _)
+            if (preg_match('/-\d{2}$/', $bad_sku) || preg_match('/_[A-Z0-9]+$/i', $bad_sku)) {
+                wp_delete_post($bad_product->ID, true);
+                $deleted++;
+                addLog("🗑️ Usunięto zły produkt ANDA: $bad_sku", "warning");
+            }
+        }
+
+        if ($deleted > 0) {
+            addLog("✅ Wyczyszczono $deleted złych produktów ANDA dla SKU: $base_sku", "success");
+        }
+    }
+
+    /**
+     * Usuwa istniejące warianty produktu
+     */
+    function anda_remove_existing_variations($product_id)
+    {
+        $product = wc_get_product($product_id);
+        if (!$product || $product->get_type() !== 'variable') {
+            return;
+        }
+
+        $variations = $product->get_children();
+        $removed = 0;
+
+        foreach ($variations as $variation_id) {
+            wp_delete_post($variation_id, true);
+            $removed++;
+        }
+
+        if ($removed > 0) {
+            addLog("🗑️ Usunięto $removed istniejących wariantów", "info");
+        }
+    }
+
+    /**
+     * Automatyczne przejście między stage'ami - NOWA FUNKCJA
+     */
+    function anda_auto_stage_progression($current_stage, $batch_size, $auto_stage, $force_update, $max_products)
+    {
+        if (!$auto_stage) {
+            // Bez auto_stage - wróć do managera
+            addLog("✅ Import zakończony - powrót do managera!", "success");
+            echo '<script>setTimeout(function(){ window.location.href = "anda-manager.php"; }, 3000);</script>';
+            return;
+        }
+
+        $next_stage = $current_stage + 1;
+
+        if ($next_stage > 3) {
+            // Wszystkie stage'y ukończone
+            addLog("🎉 WSZYSTKIE STAGE'Y UKOŃCZONE! Cały import ANDA zakończony!", "success");
+            echo '<script>setTimeout(function(){ window.location.href = "anda-manager.php"; }, 5000);</script>';
+            return;
+        }
+
+        // Przejdź do następnego stage'a
+        $next_url = "?stage=$next_stage&batch_size=$batch_size&offset=0&auto_continue=1&auto_stage=1";
+
+        if ($force_update) {
+            $next_url .= "&force_update=1";
+        }
+        if ($max_products > 0) {
+            $next_url .= "&max_products=$max_products";
+        }
+
+        addLog("🚀 Automatyczne przejście do Stage $next_stage za 2 sekundy...", "success");
+        echo '<script>setTimeout(function() { window.location.href = "' . $next_url . '"; }, 2000);</script>';
+    }
+
+    /**
+     * Import obrazów - POPRAWIONA WERSJA z cache
+     */
     function anda_import_image($image_url, $product_id, $is_featured = false)
     {
         if (!function_exists('media_handle_sideload')) {
@@ -1760,28 +1930,66 @@ $start_time = microtime(true);
             require_once(ABSPATH . 'wp-admin/includes/image.php');
         }
 
-        $tmp = download_url($image_url);
+        // Cache URL - sprawdź czy już istnieje
+        $existing_attachment = anda_find_existing_image($image_url);
+        if ($existing_attachment) {
+            if ($is_featured) {
+                set_post_thumbnail($product_id, $existing_attachment);
+            }
+            return $existing_attachment;
+        }
+
+        // Pobierz i zaimportuj
+        $tmp = download_url($image_url, 30); // timeout 30s
         if (is_wp_error($tmp)) {
+            addLog("❌ Błąd pobierania obrazu: " . $tmp->get_error_message(), "error");
             return false;
         }
 
         $file_array = [
-            'name' => basename($image_url),
+            'name' => sanitize_file_name(basename(parse_url($image_url, PHP_URL_PATH))),
             'tmp_name' => $tmp
         ];
 
+        // Dodaj meta z URL dla cache
         $attachment_id = media_handle_sideload($file_array, $product_id);
 
         if (is_wp_error($attachment_id)) {
             @unlink($tmp);
+            addLog("❌ Błąd importu obrazu: " . $attachment_id->get_error_message(), "error");
             return false;
         }
+
+        // Zapisz URL w meta dla cache
+        update_post_meta($attachment_id, '_anda_source_url', $image_url);
 
         if ($is_featured) {
             set_post_thumbnail($product_id, $attachment_id);
         }
 
+        addLog("📷 Zaimportowano obraz: " . basename($image_url), "success");
         return $attachment_id;
+    }
+
+    /**
+     * Znajdź istniejący obraz po URL
+     */
+    function anda_find_existing_image($image_url)
+    {
+        global $wpdb;
+
+        $attachment_id = $wpdb->get_var($wpdb->prepare("
+            SELECT post_id FROM {$wpdb->postmeta} 
+            WHERE meta_key = '_anda_source_url' 
+            AND meta_value = %s 
+            LIMIT 1
+        ", $image_url));
+
+        if ($attachment_id && get_post($attachment_id)) {
+            return (int) $attachment_id;
+        }
+
+        return false;
     }
 
     function addLog($message, $type = "info")
