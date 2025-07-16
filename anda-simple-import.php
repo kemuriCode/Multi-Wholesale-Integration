@@ -237,7 +237,7 @@ $start_time = microtime(true);
                 <li>URL/slugi produktów</li>
                 <li>Ceny (regular_price)</li>
                 <li>Stan magazynowy (stock)</li>
-                <li>Kategorie produktów</li>
+                <li>Kategorie z hierarchią (parent > child)</li>
                 <li>Atrybuty produktów</li>
             </ul>
         </div>
@@ -469,7 +469,7 @@ function anda_simple_update_stock($product, $product_xml, $sku, $test_mode = fal
 }
 
 /**
- * Aktualizuje kategorie produktu
+ * Aktualizuje kategorie produktu z obsługą hierarchii
  */
 function anda_simple_update_categories($product, $product_xml, $sku, $test_mode = false)
 {
@@ -490,26 +490,53 @@ function anda_simple_update_categories($product, $product_xml, $sku, $test_mode 
             // Pobierz istniejące kategorie produktu
             $current_categories = wp_get_post_terms($product->get_id(), 'product_cat', array('fields' => 'names'));
 
-            // Porównaj kategorie
-            $categories_different = array_diff($xml_categories, $current_categories) || array_diff($current_categories, $xml_categories);
+            // Przetwórz kategorie z hierarchią
+            $processed_categories = [];
+            foreach ($xml_categories as $category_path) {
+                // Sprawdź czy to hierarchia (zawiera >)
+                if (strpos($category_path, '>') !== false) {
+                    $hierarchy_parts = array_map('trim', explode('>', $category_path));
+                    $parent_id = 0;
+
+                    foreach ($hierarchy_parts as $part) {
+                        if (!empty($part)) {
+                            $category_id = anda_simple_get_or_create_category_hierarchy($part, $parent_id);
+                            if ($category_id) {
+                                $parent_id = $category_id;
+                                // Dodaj tylko ostatnią kategorię (najgłębszą) do produktu
+                                if ($part === end($hierarchy_parts)) {
+                                    $processed_categories[] = $category_id;
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    // Pojedyncza kategoria bez hierarchii
+                    $category_id = anda_simple_get_or_create_category($category_path);
+                    if ($category_id) {
+                        $processed_categories[] = $category_id;
+                    }
+                }
+            }
+
+            // Porównaj z aktualnymi kategoriami
+            $current_category_ids = wp_get_post_terms($product->get_id(), 'product_cat', array('fields' => 'ids'));
+            $categories_different = array_diff($processed_categories, $current_category_ids) || array_diff($current_category_ids, $processed_categories);
 
             if ($categories_different) {
-                echo "<script>addLog('📁 Kategorie: " . implode(', ', $xml_categories) . " ($sku)', 'info');</script>";
+                $category_names = [];
+                foreach ($processed_categories as $cat_id) {
+                    $term = get_term($cat_id, 'product_cat');
+                    if ($term && !is_wp_error($term)) {
+                        $category_names[] = $term->name;
+                    }
+                }
+
+                echo "<script>addLog('📁 Kategorie: " . implode(', ', $category_names) . " ($sku)', 'info');</script>";
                 flush();
 
                 if (!$test_mode) {
-                    $category_ids = [];
-
-                    foreach ($xml_categories as $category_name) {
-                        $category_id = anda_simple_get_or_create_category($category_name);
-                        if ($category_id) {
-                            $category_ids[] = $category_id;
-                        }
-                    }
-
-                    if (!empty($category_ids)) {
-                        wp_set_post_terms($product->get_id(), $category_ids, 'product_cat');
-                    }
+                    wp_set_post_terms($product->get_id(), $processed_categories, 'product_cat');
                 }
 
                 $changes_made = true;
@@ -597,7 +624,7 @@ function anda_simple_update_price($product, $product_xml, $sku, $test_mode = fal
 
     // Najpierw sprawdź regular_price z XML
     $new_price = null;
-    
+
     if (isset($product_xml->regular_price) && !empty($product_xml->regular_price)) {
         $new_price = floatval($product_xml->regular_price);
     } elseif (isset($product_xml->meta_data)) {
@@ -715,6 +742,42 @@ function anda_simple_update_attributes($product, $product_xml, $sku, $test_mode 
     }
 
     return $changes_made;
+}
+
+/**
+ * Pobiera lub tworzy kategorię z hierarchią
+ */
+function anda_simple_get_or_create_category_hierarchy($category_name, $parent_id = 0)
+{
+    $category_name = sanitize_text_field($category_name);
+
+    // Sprawdź czy kategoria istnieje w danym parent
+    $existing_category = get_term_by('name', $category_name, 'product_cat');
+    
+    if ($existing_category) {
+        // Sprawdź czy ma właściwego parent
+        if ($existing_category->parent == $parent_id) {
+            return $existing_category->term_id;
+        } else {
+            // Kategoria istnieje ale ma innego parent - zaktualizuj
+            wp_update_term($existing_category->term_id, 'product_cat', array(
+                'name' => $category_name,
+                'parent' => $parent_id
+            ));
+            return $existing_category->term_id;
+        }
+    }
+
+    // Utwórz nową kategorię z parent
+    $result = wp_insert_term($category_name, 'product_cat', array(
+        'parent' => $parent_id
+    ));
+
+    if (!is_wp_error($result)) {
+        return $result['term_id'];
+    }
+
+    return false;
 }
 
 /**
